@@ -26,7 +26,7 @@ export default function AdminLoginPage() {
       return loginResponseSchema.parse(raw);
     },
     onSuccess: (data) => {
-      setSession({ accessToken: data.accessToken, user: data.user });
+      setSession({ accessToken: data.accessToken, refreshToken: data.refreshToken, user: data.user });
       // session-store derives the role from the JWT claim itself; we read
       // it back here so only COMPANY_ADMIN can reach the admin area.
       const role = useSessionStore.getState().role;

@@ -27,7 +27,7 @@ export default function LoginPage() {
       return loginResponseSchema.parse(raw);
     },
     onSuccess: (data) => {
-      setSession({ accessToken: data.accessToken, user: data.user });
+      setSession({ accessToken: data.accessToken, refreshToken: data.refreshToken, user: data.user });
       router.replace('/');
     },
   });

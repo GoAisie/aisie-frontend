@@ -5,16 +5,16 @@ import { useRouter } from 'next/navigation';
 import { Sidebar } from '@/components/Sidebar';
 import { useSessionStore } from '@/lib/auth/session-store';
 
-// Client-side role guard. Server-side (httpOnly-cookie JWT + decode-in-RSC)
-// is planned for the post-Faz-3 hardening pass; until then we get the same
-// user-visible protection by redirecting anyone without COMPANY_ADMIN here.
-// The guard runs in useEffect so the initial render can't flash admin UI.
+// Client-side role guard. Waits for initialize() to settle before redirecting
+// so a page-reload silent-refresh doesn't race against the guard check.
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const role = useSessionStore((s) => s.role);
   const accessToken = useSessionStore((s) => s.accessToken);
+  const initialized = useSessionStore((s) => s.initialized);
 
   useEffect(() => {
+    if (!initialized) return;
     if (!accessToken) {
       router.replace('/login');
       return;
@@ -22,7 +22,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     if (role !== 'COMPANY_ADMIN') {
       router.replace('/login?error=forbidden');
     }
-  }, [accessToken, role, router]);
+  }, [initialized, accessToken, role, router]);
+
+  if (!initialized) {
+    return (
+      <div style={{ minHeight: '100dvh', display: 'grid', placeItems: 'center' }}>
+        <p style={{ color: '#6b6b74', fontSize: 14 }}>Yükleniyor…</p>
+      </div>
+    );
+  }
 
   if (!accessToken || role !== 'COMPANY_ADMIN') {
     return (

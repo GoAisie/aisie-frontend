@@ -1,19 +1,13 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState, use } from 'react';
-import {
-  ADMIN_REPORTS_FIXTURE,
-  ADMIN_REPORT_DETAIL_FIXTURE,
-} from '@/lib/fixtures/reports';
-import type {
-  AdminReportDetail,
-  AdminReportField,
-} from '@/lib/fixtures/types';
+import { use } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { apiFetch } from '@/lib/api-client';
+import type { Report, ReportTemplate, FieldSchema } from '@aisie/shared';
 import { formatDateTime } from '@/lib/format';
 
 type FieldValue = string | number | boolean | null;
-type FormState = Record<string, FieldValue>;
 
 export default function AdminReportDetailPage({
   params,
@@ -22,94 +16,68 @@ export default function AdminReportDetailPage({
 }) {
   const { id } = use(params);
 
-  const detail = useMemo<AdminReportDetail | null>(() => {
-    const hit = ADMIN_REPORT_DETAIL_FIXTURE[id];
-    if (hit) return hit;
-    // Fall back to a minimal shell built from the list row so the route
-    // doesn't 404 for the reports that don't have a full detail fixture.
-    const row = ADMIN_REPORTS_FIXTURE.find((r) => r.id === id);
-    if (!row) return null;
-    return {
-      ...row,
-      templateFields: [
-        { name: 'customer_name', label: 'Müşteri Adı', type: 'string', required: true },
-        { name: 'notes', label: 'Notlar', type: 'string', required: false },
-      ],
-      data: { customer_name: row.customerName, notes: '' },
-    };
-  }, [id]);
+  const { data: report, isLoading: loadingReport, isError: errorReport } = useQuery({
+    queryKey: ['admin-report', id],
+    queryFn: () => apiFetch<Report>(`/api/v1/reports/${id}`),
+    enabled: !!id,
+  });
 
-  if (!detail) {
+  const { data: template, isLoading: loadingTemplate, isError: errorTemplate } = useQuery({
+    queryKey: ['admin-report-template', id],
+    queryFn: () => apiFetch<ReportTemplate>(`/api/v1/reports/${id}/template`),
+    enabled: !!id,
+  });
+
+  if (loadingReport || loadingTemplate) {
     return (
       <div>
-        <Link href="/reports" style={backLinkStyle}>
-          ← Raporlar
-        </Link>
-        <p style={{ marginTop: 12, color: '#6b6b74' }}>Rapor bulunamadı.</p>
+        <Link href="/reports" style={backLinkStyle}>← Raporlar</Link>
+        <p style={{ marginTop: 12, color: '#6b6b74', fontSize: 14 }}>Yükleniyor…</p>
       </div>
     );
   }
 
-  return <ReportEditor detail={detail} />;
+  if (errorReport || errorTemplate || !report || !template) {
+    return (
+      <div>
+        <Link href="/reports" style={backLinkStyle}>← Raporlar</Link>
+        <p style={{ marginTop: 12, color: '#dc2626', fontSize: 14 }}>Rapor yüklenemedi.</p>
+      </div>
+    );
+  }
+
+  return <ReportViewer report={report} template={template} />;
 }
 
-function ReportEditor({ detail }: { detail: AdminReportDetail }) {
-  const [form, setForm] = useState<FormState>(() => ({ ...detail.data }));
-  const [saved, setSaved] = useState(false);
+function ReportViewer({ report, template }: { report: Report; template: ReportTemplate }) {
+  const data = report.data as Record<string, FieldValue>;
 
-  const setField = (name: string, value: FieldValue) => {
-    setSaved(false);
-    setForm((prev) => ({ ...prev, [name]: value }));
-  };
-
-  const save = (e: React.FormEvent) => {
-    e.preventDefault();
-    // TODO(Faz 3a): PUT /api/v1/reports/{id} with validated data.
-    setSaved(true);
-  };
+  const customerName =
+    typeof report.data?.['customer_name'] === 'string'
+      ? (report.data['customer_name'] as string)
+      : report.template_name;
 
   return (
     <section>
-      <Link href="/reports" style={backLinkStyle}>
-        ← Raporlar
-      </Link>
+      <Link href="/reports" style={backLinkStyle}>← Raporlar</Link>
 
       <header style={{ margin: '8px 0 24px' }}>
-        <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>{detail.customerName}</h1>
+        <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>{customerName}</h1>
         <p style={{ margin: '4px 0 0', color: '#6b6b74', fontSize: 13 }}>
-          {detail.templateName} · {detail.repName} · {formatDateTime(detail.createdAt)}
+          {template.name} · {report.user_name} · {formatDateTime(report.created_at)}
         </p>
       </header>
 
-      <form onSubmit={save} style={{ maxWidth: 680, display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {detail.templateFields.map((field) => (
+      <div style={{ maxWidth: 680, display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {template.fields.map((field) => (
           <FieldInput
             key={field.name}
             field={field}
-            value={form[field.name] ?? null}
-            onChange={(v) => setField(field.name, v)}
+            value={data[field.name] ?? null}
+            readOnly
           />
         ))}
-
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'flex-end',
-            gap: 10,
-            marginTop: 8,
-            alignItems: 'center',
-          }}
-        >
-          {saved && (
-            <span style={{ fontSize: 13, color: '#059669' }}>
-              Kaydedildi (fixture — gerçek kayıt Faz 3a'da).
-            </span>
-          )}
-          <button type="submit" style={buttonStyle}>
-            Değişiklikleri Kaydet
-          </button>
-        </div>
-      </form>
+      </div>
     </section>
   );
 }
@@ -118,17 +86,23 @@ function FieldInput({
   field,
   value,
   onChange,
+  readOnly = false,
 }: {
-  field: AdminReportField;
+  field: FieldSchema;
   value: FieldValue;
-  onChange: (v: FieldValue) => void;
+  onChange?: (v: FieldValue) => void;
+  readOnly?: boolean;
 }) {
   const label = (
     <span style={{ fontSize: 13, color: '#6b6b74' }}>
       {field.label}
-      {field.required && <span style={{ color: '#dc2626' }}> *</span>}
+      {field.required && !readOnly && <span style={{ color: '#dc2626' }}> *</span>}
     </span>
   );
+
+  const roStyle: React.CSSProperties = readOnly
+    ? { ...inputStyle, background: '#f9fafb', color: '#374151', cursor: 'default' }
+    : inputStyle;
 
   if (field.type === 'boolean') {
     return (
@@ -136,7 +110,9 @@ function FieldInput({
         <input
           type="checkbox"
           checked={value === true}
-          onChange={(e) => onChange(e.target.checked)}
+          disabled={readOnly}
+          onChange={readOnly ? undefined : (e) => onChange?.(e.target.checked)}
+          readOnly={readOnly}
         />
         {label}
       </label>
@@ -149,15 +125,13 @@ function FieldInput({
         {label}
         <select
           value={value === null || value === undefined ? '' : String(value)}
-          onChange={(e) => onChange(e.target.value || null)}
-          required={field.required}
-          style={inputStyle}
+          disabled={readOnly}
+          onChange={readOnly ? undefined : (e) => onChange?.(e.target.value || null)}
+          style={roStyle}
         >
           <option value="">— seçin —</option>
           {(field.options ?? []).map((opt) => (
-            <option key={opt} value={opt}>
-              {opt}
-            </option>
+            <option key={opt} value={opt}>{opt}</option>
           ))}
         </select>
       </label>
@@ -165,7 +139,9 @@ function FieldInput({
   }
 
   const inputType =
-    field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : field.type === 'time' ? 'time' : 'text';
+    field.type === 'number' ? 'number' :
+    field.type === 'date'   ? 'date'   :
+    field.type === 'time'   ? 'time'   : 'text';
 
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -173,44 +149,23 @@ function FieldInput({
       <input
         type={inputType}
         value={value === null || value === undefined ? '' : String(value)}
-        onChange={(e) => {
+        readOnly={readOnly}
+        onChange={readOnly ? undefined : (e) => {
           const raw = e.target.value;
-          if (field.type === 'number') {
-            onChange(raw === '' ? null : Number(raw));
-          } else {
-            onChange(raw === '' ? null : raw);
-          }
+          if (field.type === 'number') onChange?.(raw === '' ? null : Number(raw));
+          else onChange?.(raw === '' ? null : raw);
         }}
-        required={field.required}
-        style={inputStyle}
+        style={roStyle}
       />
     </label>
   );
 }
 
 const backLinkStyle: React.CSSProperties = {
-  display: 'inline-block',
-  padding: '6px 0',
-  fontSize: 13,
-  color: '#7c3aed',
-  textDecoration: 'none',
-  fontWeight: 500,
+  display: 'inline-block', padding: '6px 0',
+  fontSize: 13, color: '#7c3aed', textDecoration: 'none', fontWeight: 500,
 };
 const inputStyle: React.CSSProperties = {
-  border: '1px solid #d4d4d8',
-  borderRadius: 8,
-  padding: '8px 12px',
-  fontSize: 14,
-  background: '#fff',
-  outline: 'none',
-};
-const buttonStyle: React.CSSProperties = {
-  background: '#7c3aed',
-  color: '#fff',
-  border: 'none',
-  borderRadius: 8,
-  padding: '10px 18px',
-  fontSize: 14,
-  fontWeight: 600,
-  cursor: 'pointer',
+  border: '1px solid #d4d4d8', borderRadius: 8,
+  padding: '8px 12px', fontSize: 14, background: '#fff', outline: 'none',
 };

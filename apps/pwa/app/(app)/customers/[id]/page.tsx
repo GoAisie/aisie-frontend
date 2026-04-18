@@ -1,49 +1,84 @@
-import Link from 'next/link';
-import { notFound } from 'next/navigation';
-import { CUSTOMERS_FIXTURE } from '@/lib/fixtures/customers';
-import { formatDate } from '@/lib/format';
+'use client';
 
-export default async function CustomerDetailPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = await params;
-  const customer = CUSTOMERS_FIXTURE.find((c) => c.id === id);
-  if (!customer) notFound();
+import Link from 'next/link';
+import { useParams } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
+import { apiFetch } from '@/lib/api-client';
+import { useSessionStore } from '@/lib/auth/session-store';
+
+type CustomerContact = {
+  customer_id: string;
+  name: string;
+  phone_number: string | null;
+  email: string | null;
+};
+
+export default function CustomerDetailPage() {
+  const { id } = useParams<{ id: string }>();
+  const user = useSessionStore((s) => s.user);
+  const companyId = user?.companyPublicId;
+
+  const { data: customers = [], isLoading, isError } = useQuery({
+    queryKey: ['customers', companyId],
+    queryFn: () =>
+      apiFetch<CustomerContact[]>(`/api/v1/manage/companies/${companyId}/customers`),
+    enabled: !!companyId,
+  });
+
+  if (isLoading) {
+    return (
+      <section style={{ padding: '24px 16px 8px' }}>
+        <Link href="/customers" style={backLinkStyle}>← Müşteriler</Link>
+        <p style={{ color: '#6b6b74', fontSize: 14, marginTop: 12 }}>Yükleniyor…</p>
+      </section>
+    );
+  }
+
+  if (isError) {
+    return (
+      <section style={{ padding: '24px 16px 8px' }}>
+        <Link href="/customers" style={backLinkStyle}>← Müşteriler</Link>
+        <p style={{ color: '#dc2626', fontSize: 14, marginTop: 12 }}>Müşteri bilgisi yüklenemedi.</p>
+      </section>
+    );
+  }
+
+  const customer = customers.find((c) => c.customer_id === id);
+
+  if (!customer) {
+    return (
+      <section style={{ padding: '24px 16px 8px' }}>
+        <Link href="/customers" style={backLinkStyle}>← Müşteriler</Link>
+        <p style={{ color: '#dc2626', fontSize: 14, marginTop: 12 }}>Müşteri bulunamadı.</p>
+      </section>
+    );
+  }
 
   return (
     <section style={{ padding: '24px 16px 8px' }}>
-      <Link href="/customers" style={backLinkStyle}>
-        ← Müşteriler
-      </Link>
+      <Link href="/customers" style={backLinkStyle}>← Müşteriler</Link>
 
       <h1 style={{ fontSize: 22, fontWeight: 700, margin: '8px 0 4px' }}>{customer.name}</h1>
-      <p style={{ margin: 0, color: '#6b6b74', fontSize: 13 }}>{customer.company}</p>
 
-      <dl style={dlStyle}>
-        <Field label="Telefon" value={customer.phone} href={`tel:${customer.phone.replace(/\s/g, '')}`} />
-        <Field label="E-posta" value={customer.email} href={`mailto:${customer.email}`} />
-        <Field
-          label="Son iletişim"
-          value={customer.lastContactAt ? formatDate(customer.lastContactAt) : 'Henüz iletişim yok'}
-        />
+      <dl style={{ marginTop: 20, padding: 0 }}>
+        {customer.phone_number && (
+          <Field
+            label="Telefon"
+            value={customer.phone_number}
+            href={`tel:${customer.phone_number.replace(/\s/g, '')}`}
+          />
+        )}
+        {customer.email && (
+          <Field
+            label="E-posta"
+            value={customer.email}
+            href={`mailto:${customer.email}`}
+          />
+        )}
+        {!customer.phone_number && !customer.email && (
+          <p style={{ color: '#6b6b74', fontSize: 14 }}>İletişim bilgisi bulunmuyor.</p>
+        )}
       </dl>
-
-      <div
-        style={{
-          marginTop: 20,
-          padding: 16,
-          background: '#f0f9ff',
-          border: '1px solid #bae6fd',
-          borderRadius: 12,
-          color: '#075985',
-          fontSize: 14,
-          lineHeight: 1.5,
-        }}
-      >
-        Müşteri geçmişi (rapor listesi + zaman çizelgesi) Faz 3'te eklenecek.
-      </div>
     </section>
   );
 }
@@ -72,9 +107,4 @@ const backLinkStyle: React.CSSProperties = {
   color: '#7c3aed',
   textDecoration: 'none',
   fontWeight: 500,
-};
-
-const dlStyle: React.CSSProperties = {
-  marginTop: 20,
-  padding: 0,
 };

@@ -94,3 +94,19 @@ self.addEventListener('fetch', (event) => {
     }),
   );
 });
+
+self.addEventListener('push', (event) => {
+  const d = event.data?.json() ?? {};
+  event.waitUntil(
+    self.registration.showNotification(d.title ?? 'Aisie', {
+      body: d.body ?? '',
+      icon: '/icons/icon.svg',
+      data: { url: d.url ?? '/notifications' },
+    }),
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(clients.openWindow(event.notification.data.url));
+});

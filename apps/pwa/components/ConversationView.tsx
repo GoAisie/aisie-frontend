@@ -31,6 +31,7 @@ type State = {
 type Action =
   | { type: 'SET_MODE'; mode: MicButtonMode }
   | { type: 'ERROR'; error: string }
+  | { type: 'BACKEND_WARNING'; error: string }
   | { type: 'RESET' }
   | { type: 'RMS'; rms: number }
   | { type: 'USER_SPEECH_START' }
@@ -40,7 +41,8 @@ type Action =
   | { type: 'AI_TEXT'; text: string }
   | { type: 'TTS_START' }
   | { type: 'TTS_END' }
-  | { type: 'TURN_COMPLETE' };
+  | { type: 'TURN_COMPLETE' }
+  | { type: 'PLAYBACK_ENDED' };
 
 const initialState: State = {
   mode: 'idle',
@@ -68,8 +70,17 @@ function reducer(state: State, action: Action): State {
       return { ...initialState };
     case 'RMS':
       return { ...state, rms: action.rms };
+    case 'BACKEND_WARNING':
+      // Non-fatal error from the server (e.g. empty STT) — the WS is still
+      // open and the user can simply try again. Reset to 'listening' if we were
+      // in 'processing', otherwise stay in current mode, and show a banner.
+      return {
+        ...state,
+        mode: state.mode === 'processing' ? 'listening' : state.mode,
+        error: action.error,
+      };
     case 'USER_SPEECH_START':
-      return { ...state, mode: 'user-speaking', partial: '', final: '' };
+      return { ...state, mode: 'user-speaking', partial: '', final: '', error: null };
     case 'USER_SPEECH_END':
       return { ...state, mode: 'processing' };
     case 'PARTIAL':
@@ -83,18 +94,23 @@ function reducer(state: State, action: Action): State {
     case 'TTS_END':
       return state;
     case 'TURN_COMPLETE': {
+      // Only accumulate history — mode stays as-is (still 'assistant-speaking'
+      // while buffered PCM is playing). PLAYBACK_ENDED flips to 'listening'
+      // once the AudioContext actually drains, preventing VAD from triggering
+      // on TTS speaker bleed before the user can speak.
       const entry =
         state.final || state.assistantText
           ? { user: state.final, assistant: state.assistantText }
           : null;
       return {
         ...state,
-        mode: 'listening',
         history: entry ? [...state.history, entry] : state.history,
         final: '',
         assistantText: '',
       };
     }
+    case 'PLAYBACK_ENDED':
+      return { ...state, mode: 'listening' };
   }
 }
 
@@ -168,6 +184,9 @@ export function ConversationView() {
       sampleRate: 24000,
       onEnded: () => {
         bargeInRef.current?.disable();
+        // Flip to 'listening' only after the last PCM buffer drains so the
+        // mic doesn't open while TTS audio is still bleeding into the room.
+        dispatch({ type: 'PLAYBACK_ENDED' });
       },
     });
     playbackRef.current = playback;
@@ -366,15 +385,27 @@ function handleServerMessage(
       bargeIn.enable();
       break;
     case 'tts_end':
+      // endStream() marks the buffer boundary; onEnded fires when the last
+      // PCM frame actually drains, at which point bargeIn is disabled and
+      // mode flips to 'listening'. Do NOT disable bargeIn here — the user
+      // must be able to barge in while buffered audio is still playing.
       playback.endStream();
-      bargeIn.disable();
       dispatch({ type: 'TTS_END' });
       break;
     case 'turn_complete':
       dispatch({ type: 'TURN_COMPLETE' });
+      // If this turn had no TTS (e.g. function-call-only turn), onEnded
+      // never fires, so we flip to 'listening' immediately here instead.
+      if (!playback.isPlaying) {
+        bargeIn.disable();
+        dispatch({ type: 'PLAYBACK_ENDED' });
+      }
       break;
     case 'error':
-      dispatch({ type: 'ERROR', error: msg.message });
+      // Backend WS errors are soft — the session stays open and the user can
+      // retry. Fatal terminal errors arrive via the onError callback (network
+      // close, auth failure) and dispatch ERROR from there.
+      dispatch({ type: 'BACKEND_WARNING', error: msg.message });
       break;
     case 'template_activated':
     case 'template_switched':

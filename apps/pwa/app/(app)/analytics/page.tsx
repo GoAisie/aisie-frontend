@@ -1,17 +1,49 @@
-import { ANALYTICS_FIXTURE } from '@/lib/fixtures/analytics';
+'use client';
+
+import { useQuery } from '@tanstack/react-query';
+import { apiFetch } from '@/lib/api-client';
 import { formatPercent } from '@/lib/format';
 
+type AnalyticsSummary = {
+  reports_this_week: number;
+  reports_last_week: number;
+  completion_rate: number;
+  pending_followups: number;
+  active_customers: number;
+  calls_this_month: number;
+};
+
 export default function AnalyticsPage() {
-  const a = ANALYTICS_FIXTURE;
-  const weeklyDelta = a.reportsThisWeek - a.reportsLastWeek;
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['analytics-summary'],
+    queryFn: () => apiFetch<AnalyticsSummary>('/api/v1/analytics/summary'),
+  });
+
+  if (isLoading) {
+    return (
+      <section style={{ padding: '24px 16px 8px' }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Analiz</h1>
+        <p style={{ color: '#6b6b74', fontSize: 14, marginTop: 12 }}>Yükleniyor…</p>
+      </section>
+    );
+  }
+
+  if (isError || !data) {
+    return (
+      <section style={{ padding: '24px 16px 8px' }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Analiz</h1>
+        <p style={{ color: '#dc2626', fontSize: 14, marginTop: 12 }}>Veriler yüklenemedi.</p>
+      </section>
+    );
+  }
+
+  const weeklyDelta = data.reports_this_week - data.reports_last_week;
 
   return (
     <section style={{ padding: '24px 16px 8px' }}>
       <header style={{ marginBottom: 16 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Analiz</h1>
-        <p style={{ margin: '4px 0 0', color: '#6b6b74', fontSize: 13 }}>
-          Haftalık özet · örnek veri (Faz 3'te gerçek veri)
-        </p>
+        <p style={{ margin: '4px 0 0', color: '#6b6b74', fontSize: 13 }}>Haftalık özet</p>
       </header>
 
       <div
@@ -23,7 +55,7 @@ export default function AnalyticsPage() {
       >
         <KpiCard
           label="Bu hafta rapor"
-          value={String(a.reportsThisWeek)}
+          value={String(data.reports_this_week)}
           trend={
             weeklyDelta > 0
               ? `↑ geçen haftaya göre +${weeklyDelta}`
@@ -35,18 +67,18 @@ export default function AnalyticsPage() {
         />
         <KpiCard
           label="Tamamlanma oranı"
-          value={formatPercent(a.completionRate)}
+          value={formatPercent(data.completion_rate)}
           trend="son 30 gün"
-          trendPositive={a.completionRate >= 0.75}
+          trendPositive={data.completion_rate >= 0.75}
         />
-        <KpiCard label="Aktif müşteri" value={String(a.activeCustomers)} trend="iletişim geçmişi olan" />
+        <KpiCard label="Aktif müşteri" value={String(data.active_customers)} trend="şirket geneli toplam" />
         <KpiCard
           label="Bekleyen takip"
-          value={String(a.pendingFollowups)}
-          trend={a.pendingFollowups > 0 ? 'Ajanda sekmesinden görüntüleyin' : 'temiz'}
-          trendPositive={a.pendingFollowups === 0}
+          value={String(data.pending_followups)}
+          trend={data.pending_followups > 0 ? 'Ajanda sekmesinden görüntüleyin' : 'temiz'}
+          trendPositive={data.pending_followups === 0}
         />
-        <KpiCard label="Bu ay görüşme" value={String(a.callsThisMonth)} trend="tüm aramalar" />
+        <KpiCard label="Bu ay görüşme" value={String(data.calls_this_month)} trend="tüm aramalar" />
       </div>
     </section>
   );

@@ -1,19 +1,53 @@
 'use client';
 
-import { ADMIN_DASHBOARD_FIXTURE } from '@/lib/fixtures/dashboard';
+import { useQuery } from '@tanstack/react-query';
+import { apiFetch } from '@/lib/api-client';
 import { formatPercent } from '@/lib/format';
 
+type AnalyticsSummary = {
+  reports_this_week: number;
+  reports_last_week: number;
+  completion_rate: number;
+  pending_followups: number;
+  active_customers: number;
+  calls_this_month: number;
+};
+
 export default function DashboardPage() {
-  const d = ADMIN_DASHBOARD_FIXTURE;
-  const delta = d.reportsThisWeek - d.reportsLastWeek;
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['analytics-summary-company'],
+    queryFn: () => apiFetch<AnalyticsSummary>('/api/v1/analytics/summary?scope=company'),
+  });
+
+  if (isLoading) {
+    return (
+      <section>
+        <header style={{ marginBottom: 24 }}>
+          <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>Özet</h1>
+        </header>
+        <p style={{ color: '#6b6b74', fontSize: 14 }}>Yükleniyor…</p>
+      </section>
+    );
+  }
+
+  if (isError || !data) {
+    return (
+      <section>
+        <header style={{ marginBottom: 24 }}>
+          <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>Özet</h1>
+        </header>
+        <p style={{ color: '#dc2626', fontSize: 14 }}>Veriler yüklenemedi.</p>
+      </section>
+    );
+  }
+
+  const delta = data.reports_this_week - data.reports_last_week;
 
   return (
     <section>
       <header style={{ marginBottom: 24 }}>
         <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>Özet</h1>
-        <p style={{ margin: '4px 0 0', color: '#6b6b74', fontSize: 13 }}>
-          Haftalık aktivite · örnek veri (Faz 3a'da gerçek veri)
-        </p>
+        <p style={{ margin: '4px 0 0', color: '#6b6b74', fontSize: 13 }}>Haftalık aktivite</p>
       </header>
 
       <div
@@ -26,27 +60,31 @@ export default function DashboardPage() {
       >
         <Kpi
           label="Bu hafta rapor"
-          value={String(d.reportsThisWeek)}
-          trend={delta >= 0 ? `↑ geçen haftaya göre +${delta}` : `↓ geçen haftaya göre ${delta}`}
+          value={String(data.reports_this_week)}
+          trend={delta > 0 ? `↑ geçen haftaya göre +${delta}` : delta < 0 ? `↓ geçen haftaya göre ${delta}` : 'geçen haftayla aynı'}
           trendPositive={delta >= 0}
         />
         <Kpi
           label="Tamamlanma oranı"
-          value={formatPercent(d.completionRate)}
+          value={formatPercent(data.completion_rate)}
           trend="son 30 gün"
-          trendPositive={d.completionRate >= 0.8}
+          trendPositive={data.completion_rate >= 0.8}
         />
-        <Kpi label="Aktif satış temsilcisi" value={String(d.activeReps)} trend="son 7 gün içinde rapor giren" />
         <Kpi
-          label="Rapor başına konuşma turu"
-          value={d.averageTurnsPerReport.toFixed(1)}
-          trend="ortalama — düşük = verimli diyalog"
+          label="Aktif müşteri"
+          value={String(data.active_customers)}
+          trend="şirket geneli toplam"
+        />
+        <Kpi
+          label="Bu ay görüşme"
+          value={String(data.calls_this_month)}
+          trend="toplam rapor sayısı"
         />
         <Kpi
           label="Bekleyen takip"
-          value={String(d.pendingFollowups)}
-          trend={d.pendingFollowups === 0 ? 'temiz' : 'ajanda sekmesinden dağıtılabilir'}
-          trendPositive={d.pendingFollowups <= 5}
+          value={String(data.pending_followups)}
+          trend={data.pending_followups === 0 ? 'temiz' : 'ajanda sekmesinden dağıtılabilir'}
+          trendPositive={data.pending_followups <= 5}
         />
       </div>
     </section>

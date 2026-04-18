@@ -2,19 +2,26 @@
 
 import { create } from 'zustand';
 import type { User } from '@aisie/shared';
+import { loginResponseSchema } from '@aisie/shared';
+import { env } from '../env';
 
-// Shared shape with the PWA's session-store (in-memory access token, no
-// localStorage — avoids the XSS exfiltration risk the legacy RN app had).
-// The admin also decodes `role` from the JWT itself so the route guards
-// don't need to call a /me endpoint just to read one claim.
+const STORAGE_KEY_REFRESH = 'aisie_admin_refresh_token';
+const STORAGE_KEY_USER = 'aisie_admin_user';
+
+// Access token stays in memory only. Refresh token persisted in localStorage
+// so page reloads don't force the admin back to /login.
 export type AdminRole = 'COMPANY_ADMIN' | 'SALES_REP' | 'SALES_MANAGER';
 
 type SessionState = {
   accessToken: string | null;
+  refreshToken: string | null;
   user: User | null;
   role: AdminRole | null;
-  setSession: (args: { accessToken: string; user: User }) => void;
+  // Flips to true after initialize() settles — auth guards must not redirect before this.
+  initialized: boolean;
+  setSession: (args: { accessToken: string; refreshToken: string; user: User }) => void;
   clearSession: () => void;
+  initialize: () => Promise<void>;
 };
 
 function decodeRole(token: string): AdminRole | null {
@@ -40,11 +47,68 @@ function decodeRole(token: string): AdminRole | null {
 
 export const useSessionStore = create<SessionState>((set) => ({
   accessToken: null,
+  refreshToken: null,
   user: null,
   role: null,
-  setSession: ({ accessToken, user }) =>
-    set({ accessToken, user, role: decodeRole(accessToken) }),
-  clearSession: () => set({ accessToken: null, user: null, role: null }),
+  initialized: false,
+
+  setSession: ({ accessToken, refreshToken, user }) => {
+    set({ accessToken, refreshToken, user, role: decodeRole(accessToken) });
+    try {
+      localStorage.setItem(STORAGE_KEY_REFRESH, refreshToken);
+      localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(user));
+    } catch {
+      // Private browsing mode may block localStorage writes.
+    }
+  },
+
+  clearSession: () => {
+    set({ accessToken: null, refreshToken: null, user: null, role: null });
+    try {
+      localStorage.removeItem(STORAGE_KEY_REFRESH);
+      localStorage.removeItem(STORAGE_KEY_USER);
+    } catch {
+      // ignore
+    }
+  },
+
+  initialize: async () => {
+    let storedRefresh: string | null = null;
+    try {
+      storedRefresh = localStorage.getItem(STORAGE_KEY_REFRESH);
+    } catch {
+      set({ initialized: true });
+      return;
+    }
+    if (!storedRefresh) {
+      set({ initialized: true });
+      return;
+    }
+
+    try {
+      const res = await fetch(`${env.apiBaseUrl}/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: storedRefresh }),
+      });
+      if (!res.ok) {
+        useSessionStore.getState().clearSession();
+        set({ initialized: true });
+        return;
+      }
+      const raw = await res.json();
+      const data = loginResponseSchema.parse(raw);
+      useSessionStore.getState().setSession({
+        accessToken: data.accessToken,
+        refreshToken: data.refreshToken,
+        user: data.user,
+      });
+    } catch {
+      useSessionStore.getState().clearSession();
+    } finally {
+      set({ initialized: true });
+    }
+  },
 }));
 
 export function getAccessToken(): string | null {

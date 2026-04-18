@@ -25,7 +25,9 @@ export const SILENCE_THRESHOLD = 600;
 // Safari's AEC is more aggressive than Chrome's — it also attenuates quiet
 // incoming speech, so barge-in needs a higher bar on iOS to avoid missing it
 // while the TTS itself is bleeding back through.
-export const BARGE_IN_THRESHOLD = IS_IOS ? 525 : 350;
+// Raised from 350/525 → 600/800 after real-device testing showed quiet ambient
+// noise (TTS speaker bleed, keyboard, etc.) was triggering false barge-ins.
+export const BARGE_IN_THRESHOLD = IS_IOS ? 800 : 600;
 
 // Counts are in worklet frames (20 ms each at 16 kHz):
 //   REQUIRED_VOICE_CHECKS  = 3  → 60 ms of voice confirms "speech started"
@@ -35,9 +37,10 @@ export const BARGE_IN_THRESHOLD = IS_IOS ? 525 : 350;
 export const REQUIRED_VOICE_CHECKS = 3;
 export const REQUIRED_SILENCE_CHECKS = 75;
 
-// Barge-in needs a slightly higher confidence bar (100 ms) because false
-// positives kill TTS mid-word and feel broken.
-export const BARGE_IN_REQUIRED_VOICE_CHECKS = 5;
+// Raised from 5 → 8 frames (160 ms) — barge-in needs more confidence to avoid
+// killing TTS on ambient bleed or brief plosives. Real intentional interruption
+// is sustained; true false-positives drop off within a few frames.
+export const BARGE_IN_REQUIRED_VOICE_CHECKS = 8;
 
 export const AUDIO_SAMPLE_RATE = 16000;
 export const AUDIO_FRAME_SAMPLES = 320;

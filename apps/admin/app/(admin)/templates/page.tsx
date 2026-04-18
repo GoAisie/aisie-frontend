@@ -1,10 +1,28 @@
 'use client';
 
-import { ADMIN_TEMPLATES_FIXTURE } from '@/lib/fixtures/templates';
-import { formatDateTime } from '@/lib/format';
+import { useQuery } from '@tanstack/react-query';
+import { apiFetch } from '@/lib/api-client';
+
+type TemplateField = {
+  name: string;
+  label: string;
+  type: string;
+  required: boolean;
+};
+
+type ReportTemplate = {
+  base_id: string;
+  version: number;
+  name: string;
+  fields: TemplateField[];
+  is_latest: boolean;
+};
 
 export default function AdminTemplatesPage() {
-  const templates = ADMIN_TEMPLATES_FIXTURE;
+  const { data: templates = [], isLoading, isError } = useQuery({
+    queryKey: ['admin-templates'],
+    queryFn: () => apiFetch<ReportTemplate[]>('/api/v1/manage/templates'),
+  });
 
   return (
     <section>
@@ -19,7 +37,7 @@ export default function AdminTemplatesPage() {
         <div>
           <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>Şablonlar</h1>
           <p style={{ margin: '4px 0 0', color: '#6b6b74', fontSize: 13 }}>
-            {templates.length} şablon · düzenleme Faz 3a'da açılacak
+            {isLoading ? 'Yükleniyor…' : `${templates.length} şablon`}
           </p>
         </div>
         <button type="button" style={primaryBtnStyle} disabled>
@@ -27,36 +45,38 @@ export default function AdminTemplatesPage() {
         </button>
       </header>
 
-      <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
-          <thead>
-            <tr style={{ background: '#f8fafc', textAlign: 'left' }}>
-              <th style={thStyle}>Ad</th>
-              <th style={thStyle}>Base ID</th>
-              <th style={thStyle}>Versiyon</th>
-              <th style={thStyle}>Alan sayısı</th>
-              <th style={thStyle}>Son kullanım</th>
-            </tr>
-          </thead>
-          <tbody>
-            {templates.map((t) => (
-              <tr key={t.id} style={{ borderTop: '1px solid #f1f5f9' }}>
-                <td style={tdStyle}>{t.name}</td>
-                <td style={{ ...tdStyle, color: '#6b6b74', fontFamily: 'ui-monospace, monospace', fontSize: 12 }}>
-                  {t.baseId}
-                </td>
-                <td style={{ ...tdStyle, fontVariantNumeric: 'tabular-nums' }}>v{t.version}</td>
-                <td style={{ ...tdStyle, color: '#6b6b74', fontVariantNumeric: 'tabular-nums' }}>
-                  {t.fieldCount}
-                </td>
-                <td style={{ ...tdStyle, color: '#6b6b74' }}>
-                  {t.lastUsedAt ? formatDateTime(t.lastUsedAt) : '—'}
-                </td>
+      {isError && (
+        <p style={{ color: '#dc2626', fontSize: 14 }}>Şablonlar yüklenemedi.</p>
+      )}
+
+      {!isLoading && !isError && (
+        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+            <thead>
+              <tr style={{ background: '#f8fafc', textAlign: 'left' }}>
+                <th style={thStyle}>Ad</th>
+                <th style={thStyle}>Base ID</th>
+                <th style={thStyle}>Versiyon</th>
+                <th style={thStyle}>Alan sayısı</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {templates.map((t) => (
+                <tr key={`${t.base_id}-${t.version}`} style={{ borderTop: '1px solid #f1f5f9' }}>
+                  <td style={tdStyle}>{t.name}</td>
+                  <td style={{ ...tdStyle, color: '#6b6b74', fontFamily: 'ui-monospace, monospace', fontSize: 12 }}>
+                    {t.base_id}
+                  </td>
+                  <td style={{ ...tdStyle, fontVariantNumeric: 'tabular-nums' }}>v{t.version}</td>
+                  <td style={{ ...tdStyle, color: '#6b6b74', fontVariantNumeric: 'tabular-nums' }}>
+                    {t.fields.length}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </section>
   );
 }
