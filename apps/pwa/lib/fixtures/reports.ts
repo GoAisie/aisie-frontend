@@ -1,0 +1,60 @@
+import type { ReportListItem } from './types';
+
+export const REPORTS_FIXTURE: ReportListItem[] = [
+  {
+    id: 'r-01',
+    customerName: 'Ahmet Yılmaz',
+    templateName: 'Satış Görüşmesi',
+    repName: 'Anıl Sale',
+    status: 'completed',
+    createdAt: '2026-04-18T09:45:00+03:00',
+  },
+  {
+    id: 'r-02',
+    customerName: 'Ayşe Kaya',
+    templateName: 'İlk Temas',
+    repName: 'Anıl Sale',
+    status: 'completed',
+    createdAt: '2026-04-17T15:30:00+03:00',
+  },
+  {
+    id: 'r-03',
+    customerName: 'Mehmet Demir',
+    templateName: 'Takip Araması',
+    repName: 'Anıl Sale',
+    status: 'completed',
+    createdAt: '2026-04-17T11:20:00+03:00',
+  },
+  {
+    id: 'r-04',
+    customerName: 'Fatma Şahin',
+    templateName: 'Satış Görüşmesi',
+    repName: 'Anıl Sale',
+    status: 'in-progress',
+    createdAt: '2026-04-16T16:00:00+03:00',
+  },
+  {
+    id: 'r-05',
+    customerName: 'Can Öztürk',
+    templateName: 'Teklif Değerlendirme',
+    repName: 'Anıl Sale',
+    status: 'completed',
+    createdAt: '2026-04-16T10:15:00+03:00',
+  },
+  {
+    id: 'r-06',
+    customerName: 'Zeynep Arslan',
+    templateName: 'Keşif Ziyareti',
+    repName: 'Anıl Sale',
+    status: 'completed',
+    createdAt: '2026-04-15T14:40:00+03:00',
+  },
+  {
+    id: 'r-07',
+    customerName: 'Emre Koç',
+    templateName: 'Satış Görüşmesi',
+    repName: 'Anıl Sale',
+    status: 'completed',
+    createdAt: '2026-04-15T09:00:00+03:00',
+  },
+];
