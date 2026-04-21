@@ -215,12 +215,19 @@ function FieldInput({
     field.type === 'date'   ? 'date'   :
     field.type === 'time'   ? 'time'   : 'text';
 
+  // date inputs require exactly "YYYY-MM-DD"; datetime strings ("2026-04-20T00:00:00")
+  // returned by older MongoDB records would show empty — strip the time portion.
+  const displayValue =
+    value === null || value === undefined ? '' :
+    field.type === 'date' ? String(value).slice(0, 10) :
+    String(value);
+
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       {label}
       <input
         type={inputType}
-        value={value === null || value === undefined ? '' : String(value)}
+        value={displayValue}
         onChange={(e) => {
           const raw = e.target.value;
           if (field.type === 'number') onChange(raw === '' ? null : Number(raw));

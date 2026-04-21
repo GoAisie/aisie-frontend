@@ -44,6 +44,15 @@ export class PlaybackEngine {
     const ctx = this.ctx;
     if (!ctx) return;
 
+    // Resume if the browser auto-suspended the context during a long silence
+    // between turns. prepare() only checks on initial creation; subsequent calls
+    // skip it because ctx is already set. Chrome suspends after ~30s of no audio;
+    // iOS Safari is more aggressive. resume() is safe without a user gesture when
+    // the context was originally created inside one (which prepare() ensures).
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
+
     const f32 = new Float32Array(pcm.length);
     for (let i = 0; i < pcm.length; i++) {
       const v = pcm[i] as number;
