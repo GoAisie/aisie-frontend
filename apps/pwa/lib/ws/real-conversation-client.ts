@@ -55,6 +55,7 @@ export class RealConversationClient implements ConversationClient {
       };
       const onOpen = () => {
         cleanup();
+        console.log('[WS] open', { url: url.replace(/token=[^&]+/, 'token=***') });
         resolve();
       };
       const onError = () => {
@@ -109,12 +110,22 @@ export class RealConversationClient implements ConversationClient {
     );
   }
 
+  sendSpeechStart(): void {
+    console.log('[CLIENT] send_speech_start');
+    this.sendControl({ type: 'speech_start' });
+  }
+
   sendEndOfUtterance(): void {
     this.sendControl({ type: 'end_of_utterance' });
   }
 
   sendBargeIn(): void {
     this.sendControl({ type: 'barge_in' });
+  }
+
+  sendReplayLast(): void {
+    console.log('[CLIENT] send_replay_last');
+    this.sendControl({ type: 'replay_last' });
   }
 
   private sendControl(payload: Record<string, unknown>): void {
@@ -144,7 +155,9 @@ export class RealConversationClient implements ConversationClient {
       return;
     }
 
-    if (typeof raw !== 'string') return;
+    if (typeof raw !== 'string') {
+      return;
+    }
 
     let parsed: unknown;
     try {
@@ -174,6 +187,12 @@ export class RealConversationClient implements ConversationClient {
       this.currentTts = null;
     }
 
+    // Log all control messages except high-frequency partial_transcripts to keep
+    // the console readable — partials fire on every STT delta (dozens per turn).
+    if (msg.type !== 'partial_transcript') {
+      console.log('[WS] message_in', msg.type, msg);
+    }
+
     this.opts.onMessage(msg);
   }
 
@@ -184,6 +203,7 @@ export class RealConversationClient implements ConversationClient {
     }
     this.ws = null;
     this.currentTts = null;
+    console.log('[WS] close', { code: ev.code, reason: ev.reason, wasClean: ev.wasClean });
     this.opts.onState('closed');
     // Clean shutdown → nothing to surface. Non-1000 closes (e.g. 1008 auth
     // failure, 1013 rate limit) bubble up as errors so the UI can show them.

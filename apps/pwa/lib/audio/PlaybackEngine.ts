@@ -77,11 +77,15 @@ export class PlaybackEngine {
       if (this.active.length === 0 && this.endPending) {
         this.endPending = false;
         this.nextStartTime = 0;
+        console.log('[TTS] playback_ended');
         this.opts.onEnded?.();
       }
     };
 
-    if (wasIdle) this.opts.onStarted?.();
+    if (wasIdle) {
+      console.log('[TTS] queue_started', { firstChunkDuration: buffer.duration });
+      this.opts.onStarted?.();
+    }
   }
 
   // Called after the final PCM chunk to mark the stream boundary. The
@@ -90,6 +94,7 @@ export class PlaybackEngine {
   endStream(): void {
     if (this.active.length === 0) {
       this.nextStartTime = 0;
+      console.log('[TTS] playback_ended_empty');
       this.opts.onEnded?.();
       return;
     }

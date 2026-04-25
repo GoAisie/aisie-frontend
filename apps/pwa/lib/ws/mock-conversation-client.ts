@@ -95,6 +95,10 @@ export class MockConversationClient implements ConversationClient {
     }, 400);
   }
 
+  sendSpeechStart(): void {
+    // no-op in mock: canned turns are triggered by sendEndOfUtterance
+  }
+
   sendEndOfUtterance(): void {
     if (!this.connected) return;
     this.firstPcmReceived = false;
@@ -120,6 +124,15 @@ export class MockConversationClient implements ConversationClient {
     this.emit({ type: 'tts_end' });
     this.emitTurnComplete();
     this.turnIdx++;
+  }
+
+  sendReplayLast(): void {
+    if (!this.connected) return;
+    // Replay the last canned turn's AI text. turnIdx was already incremented
+    // after the turn completed, so (turnIdx - 1) is the most recent one.
+    const idx = (this.turnIdx - 1 + CANNED_TURNS.length) % CANNED_TURNS.length;
+    const turn = CANNED_TURNS[idx]!;
+    this.streamAssistantTurn(turn.aiText);
   }
 
   private streamAssistantTurn(text: string): void {

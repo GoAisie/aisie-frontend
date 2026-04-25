@@ -36,6 +36,7 @@ export class BargeInDetector {
       this.voiceCount++;
       if (this.voiceCount >= BARGE_IN_REQUIRED_VOICE_CHECKS) {
         this.active = false;
+        console.log('[BARGE_IN] detected', { rms });
         this.listener();
       }
     } else if (this.voiceCount > 0) {

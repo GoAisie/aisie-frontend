@@ -20,8 +20,10 @@ export interface ConversationClient {
   connect(): Promise<void>;
   disconnect(): Promise<void>;
   sendPcm(frame: Int16Array): void;
+  sendSpeechStart(): void;
   sendEndOfUtterance(): void;
   sendBargeIn(): void;
+  sendReplayLast(): void;
 }
 
 // Default: talk to the real backend. `NEXT_PUBLIC_USE_MOCK_BACKEND=1` in

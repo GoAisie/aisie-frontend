@@ -85,11 +85,15 @@ export const wsEndOfUtteranceSchema = z.object({ type: z.literal('end_of_utteran
 export const wsBargeInSchema = z.object({ type: z.literal('barge_in') });
 export const wsPingSchema = z.object({ type: z.literal('ping') });
 export const wsPongSchema = z.object({ type: z.literal('pong') });
+// Sent by the client when barge-in fired but no transcript arrived within 8s —
+// asks the backend to re-TTS the last AI message without a new LLM call.
+export const wsReplayLastSchema = z.object({ type: z.literal('replay_last') });
 
 export const wsClientMessageSchema = z.discriminatedUnion('type', [
   wsEndOfUtteranceSchema,
   wsBargeInSchema,
   wsPingSchema,
   wsPongSchema,
+  wsReplayLastSchema,
 ]);
 export type WsClientMessage = z.infer<typeof wsClientMessageSchema>;

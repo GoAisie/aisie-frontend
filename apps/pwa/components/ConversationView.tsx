@@ -5,6 +5,7 @@ import type { Dispatch } from 'react';
 import type { WsServerMessage } from '@aisie/shared';
 import { MicButton, type MicButtonMode } from '@/components/MicButton';
 import {
+  BARGE_IN_REQUIRED_VOICE_CHECKS,
   BargeInDetector,
   MicCapture,
   PlaybackEngine,
@@ -80,13 +81,21 @@ function reducer(state: State, action: Action): State {
         error: action.error,
       };
     case 'USER_SPEECH_START':
-      return { ...state, mode: 'user-speaking', partial: '', final: '', error: null };
+      // Don't clear `final` here — the previous turn's TURN_COMPLETE may still
+      // be in-flight (barge-in race). TURN_COMPLETE is responsible for saving
+      // final to history and clearing it.
+      return { ...state, mode: 'user-speaking', partial: '', error: null };
     case 'USER_SPEECH_END':
+      // Flip to 'processing' immediately so VAD stops receiving frames and
+      // cannot open a phantom speech session while TTS echo is in the room.
+      // Empty STT → BACKEND_WARNING handler resets to 'listening' correctly.
       return { ...state, mode: 'processing' };
     case 'PARTIAL':
       return { ...state, partial: action.text };
     case 'FINAL':
-      return { ...state, final: action.text, partial: '' };
+      // final_transcript is only sent by the backend when transcription is
+      // non-empty, so this is the right moment to show "Düşünüyorum…".
+      return { ...state, final: action.text, partial: '', mode: 'processing' };
     case 'AI_TEXT':
       return { ...state, assistantText: action.text };
     case 'TTS_START':
@@ -142,10 +151,28 @@ export function ConversationView() {
   const modeRef = useRef<MicButtonMode>('idle');
   modeRef.current = state.mode;
 
+  // Ring buffer of the last BARGE_IN_REQUIRED_VOICE_CHECKS PCM frames captured
+  // during assistant-speaking. Flushed to backend right after sendBargeIn() so
+  // STT receives the speech onset that triggered barge-in detection.
+  const bargeInPcmBufferRef = useRef<Int16Array[]>([]);
+  // Wall-clock timestamp of send_end_of_utterance; used to compute full PTT
+  // (1500ms VAD window + backend processing + network + AudioContext scheduling).
+  const speechEndTimeRef = useRef<number>(0);
+  // Replay timer: fires 8s after barge-in if no final_transcript arrives.
+  // Asks the backend to re-TTS the last AI response so the user doesn't get
+  // silently stuck after accidentally interrupting (cough, noise, etc.).
+  const replayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Releases browser-side resources (mic track, AudioContexts, mock timers)
   // without touching React state. Called from both endSession (user taps to
   // stop) and the error path (so the error message survives the cleanup).
   const teardown = useCallback(async () => {
+    bargeInPcmBufferRef.current = [];
+    speechEndTimeRef.current = 0;
+    if (replayTimerRef.current !== null) {
+      clearTimeout(replayTimerRef.current);
+      replayTimerRef.current = null;
+    }
     const mic = micRef.current;
     const playback = playbackRef.current;
     const client = clientRef.current;
@@ -182,7 +209,19 @@ export function ConversationView() {
 
     const playback = new PlaybackEngine({
       sampleRate: 24000,
+      onStarted: () => {
+        // First PCM buffer scheduled in AudioContext — measure full PTT.
+        // Formula: 1500ms (VAD silence window) + (now − send_end_of_utterance).
+        const t0 = speechEndTimeRef.current;
+        if (t0 > 0) {
+          const backendMs = Date.now() - t0;
+          console.log('[PTT] measured totalPtMs=' + (1500 + backendMs) + ' backendMs=' + backendMs);
+          speechEndTimeRef.current = 0;
+        }
+      },
       onEnded: () => {
+        // Clear ring buffer — TTS is done, the barge-in window has closed.
+        bargeInPcmBufferRef.current = [];
         bargeInRef.current?.disable();
         // Flip to 'listening' only after the last PCM buffer drains so the
         // mic doesn't open while TTS audio is still bleeding into the room.
@@ -196,22 +235,81 @@ export function ConversationView() {
       // tell the server. Mode flips back to 'listening' when the mock
       // emits turn_complete in response.
       playback.stop();
+      console.log('[CLIENT] send_barge_in');
+      // Send barge_in control message FIRST so backend clears its buffer and
+      // opens the live STT queue before the pre-buffer PCM frames arrive.
       clientRef.current?.sendBargeIn();
+      // Flush the ring buffer: these 8 × 20ms frames were captured during
+      // assistant-speaking and contain the speech onset that triggered detection.
+      const preBuffer = bargeInPcmBufferRef.current;
+      for (const pcm of preBuffer) {
+        clientRef.current?.sendPcm(pcm);
+      }
+      bargeInPcmBufferRef.current = [];
+
+      // Start the 2-second replay timer. If the user interrupted by accident
+      // (cough, noise) and no speech is recognized within 2s, the AI replays
+      // its last message so the conversation doesn't silently stall.
+      // We reset any prior timer first in case barge-in fires twice somehow.
+      if (replayTimerRef.current !== null) {
+        clearTimeout(replayTimerRef.current);
+      }
+      replayTimerRef.current = setTimeout(() => {
+        // Guard: only send if we're quietly waiting — not mid-turn or mid-speech.
+        if (modeRef.current === 'listening') {
+          replayTimerRef.current = null;
+          console.log('[REPLAY] sending replay_last — no transcript for 2s after barge-in');
+          clientRef.current?.sendReplayLast();
+        }
+        // When guard blocks (mode != 'listening'): ref intentionally keeps the stale
+        // expired timeout ID (non-null). The error handler checks !== null to restart
+        // the timer when the next empty-STT arrives. clearTimeout on an expired ID
+        // is a documented safe no-op in all browsers.
+      }, 2000);
     });
     bargeInRef.current = bargeIn;
 
     const vad = new VadProcessor((ev) => {
       if (ev.type === 'speech-start') {
         dispatch({ type: 'USER_SPEECH_START' });
+        clientRef.current?.sendSpeechStart();
       } else {
+        // Capture wall-clock time at the moment we send end_of_utterance.
+        // PTT = 1500ms (VAD silence window already elapsed) + (queue_started − this).
+        speechEndTimeRef.current = Date.now();
         dispatch({ type: 'USER_SPEECH_END' });
+        console.log('[CLIENT] send_end_of_utterance', { durationMs: ev.durationMs });
         clientRef.current?.sendEndOfUtterance();
       }
     });
     vadRef.current = vad;
 
     const client = createConversationClient({
-      onMessage: (msg) => handleServerMessage(msg, dispatch, playback, bargeIn),
+      onMessage: (msg) => {
+        // Cancel replay timer the moment a confirmed transcript arrives —
+        // the user spoke and was understood, so no replay is needed.
+        if (msg.type === 'final_transcript' && replayTimerRef.current !== null) {
+          clearTimeout(replayTimerRef.current);
+          replayTimerRef.current = null;
+        }
+        // On empty-STT error while waiting after barge-in: restart the 2s
+        // window instead of letting the timer fire during the next speech
+        // attempt. Without this, the timer fires while mode='user-speaking'
+        // (the guard blocks it) and there is no second chance to replay.
+        if (msg.type === 'error' && replayTimerRef.current !== null) {
+          clearTimeout(replayTimerRef.current);
+          replayTimerRef.current = setTimeout(() => {
+            if (modeRef.current === 'listening') {
+              replayTimerRef.current = null;
+              console.log('[REPLAY] sending replay_last — no transcript after 2s post empty-STT');
+              clientRef.current?.sendReplayLast();
+            }
+            // Same stale-ID pattern as the barge-in timer above:
+            // guard blocked → ref stays non-null → next error can restart.
+          }, 2000);
+        }
+        handleServerMessage(msg, dispatch, playback, bargeIn);
+      },
       onAudio: (pcm) => playback.enqueue(pcm),
       onState: () => {
         /* connection state surfaces via mode transitions */
@@ -233,6 +331,12 @@ export function ConversationView() {
           clientRef.current?.sendPcm(frame.pcm);
           vadRef.current?.pushFrame(frame.rms, frame.timestamp);
         } else if (m === 'assistant-speaking') {
+          // Accumulate the last BARGE_IN_REQUIRED_VOICE_CHECKS frames as a ring
+          // buffer. On barge-in fire, these are flushed to the backend so STT
+          // captures the speech onset that triggered barge-in detection.
+          const buf = bargeInPcmBufferRef.current;
+          buf.push(frame.pcm);
+          if (buf.length > BARGE_IN_REQUIRED_VOICE_CHECKS) buf.shift();
           bargeInRef.current?.pushFrame(frame.rms);
         }
       },
@@ -545,10 +649,9 @@ function TranscriptPanel(props: {
             Siz
           </p>
           <p style={{ margin: '4px 0 0', color: '#0b0b0f', fontSize: 15, lineHeight: 1.45 }}>
-            {props.final}
-            {props.partial && !props.final && (
+            {props.partial ? (
               <span style={{ color: '#a78bfa', fontStyle: 'italic' }}>{props.partial}</span>
-            )}
+            ) : props.final}
           </p>
         </div>
       )}

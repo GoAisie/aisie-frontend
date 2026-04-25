@@ -30,11 +30,18 @@ export const SILENCE_THRESHOLD = 600;
 export const BARGE_IN_THRESHOLD = IS_IOS ? 800 : 600;
 
 // Counts are in worklet frames (20 ms each at 16 kHz):
-//   REQUIRED_VOICE_CHECKS  = 3  → 60 ms of voice confirms "speech started"
+//   REQUIRED_VOICE_CHECKS  = 8  → 160 ms of voice confirms "speech started"
 //   REQUIRED_SILENCE_CHECKS = 75 → 1.5 s of silence confirms "speech ended"
 // Android's native path ran checks every 200 ms; on Web we sample 10x faster,
 // so we scaled the frame counts to land on comparable wall-clock durations.
-export const REQUIRED_VOICE_CHECKS = 3;
+//
+// 8 frames (160 ms) was chosen to reject keyboard-click false positives:
+// physical key impulses typically peak and subside within ~80 ms, well below
+// the gate. Real speech onsets are sustained; the first 160 ms of a syllable
+// is captured in the backend audio buffer via _speech_start_audio_pos offset,
+// so STT quality is not materially affected. Does NOT change Perceived Turn
+// Time (PTT) — that clock starts at end_of_utterance, not speech_start.
+export const REQUIRED_VOICE_CHECKS = 8;
 export const REQUIRED_SILENCE_CHECKS = 75;
 
 // Raised from 5 → 8 frames (160 ms) — barge-in needs more confidence to avoid

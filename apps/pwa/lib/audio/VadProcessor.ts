@@ -40,6 +40,7 @@ export class VadProcessor {
           this.speechStartTs = timestamp;
           this.voiceCount = 0;
           this.silenceCount = 0;
+          console.log('[VAD] speech_start', { rms, timestamp });
           this.listener({ type: 'speech-start', timestamp });
         }
       } else {
@@ -57,6 +58,7 @@ export class VadProcessor {
         this.speechStartTs = null;
         this.voiceCount = 0;
         this.silenceCount = 0;
+        console.log('[VAD] speech_end', { durationMs, timestamp });
         this.listener({ type: 'speech-end', timestamp, durationMs });
       }
     } else {
