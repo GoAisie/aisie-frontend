@@ -5,7 +5,7 @@ import type { Dispatch } from 'react';
 import type { WsServerMessage } from '@aisie/shared';
 import { MicButton, type MicButtonMode } from '@/components/MicButton';
 import {
-  BARGE_IN_REQUIRED_VOICE_CHECKS,
+  BARGE_IN_PRE_BUFFER_FRAMES,
   BargeInDetector,
   MicCapture,
   PlaybackEngine,
@@ -151,12 +151,13 @@ export function ConversationView() {
   const modeRef = useRef<MicButtonMode>('idle');
   modeRef.current = state.mode;
 
-  // Ring buffer of the last BARGE_IN_REQUIRED_VOICE_CHECKS PCM frames captured
-  // during assistant-speaking. Flushed to backend right after sendBargeIn() so
-  // STT receives the speech onset that triggered barge-in detection.
+  // Ring buffer of the last BARGE_IN_PRE_BUFFER_FRAMES (320 ms) PCM frames
+  // captured during assistant-speaking. Flushed to backend right after
+  // sendBargeIn() so STT receives the speech onset (including quiet fricative
+  // / nasal pre-confirmation audio) that triggered barge-in detection.
   const bargeInPcmBufferRef = useRef<Int16Array[]>([]);
   // Wall-clock timestamp of send_end_of_utterance; used to compute full PTT
-  // (1500ms VAD window + backend processing + network + AudioContext scheduling).
+  // (760ms VAD window + backend processing + network + AudioContext scheduling).
   const speechEndTimeRef = useRef<number>(0);
   // Replay timer: fires 8s after barge-in if no final_transcript arrives.
   // Asks the backend to re-TTS the last AI response so the user doesn't get
@@ -211,11 +212,11 @@ export function ConversationView() {
       sampleRate: 24000,
       onStarted: () => {
         // First PCM buffer scheduled in AudioContext — measure full PTT.
-        // Formula: 1500ms (VAD silence window) + (now − send_end_of_utterance).
+        // Formula: 760ms (VAD silence window) + (now − send_end_of_utterance).
         const t0 = speechEndTimeRef.current;
         if (t0 > 0) {
           const backendMs = Date.now() - t0;
-          console.log('[PTT] measured totalPtMs=' + (1500 + backendMs) + ' backendMs=' + backendMs);
+          console.log('[PTT] measured totalPtMs=' + (760 + backendMs) + ' backendMs=' + backendMs);
           speechEndTimeRef.current = 0;
         }
       },
@@ -275,7 +276,7 @@ export function ConversationView() {
         clientRef.current?.sendSpeechStart();
       } else {
         // Capture wall-clock time at the moment we send end_of_utterance.
-        // PTT = 1500ms (VAD silence window already elapsed) + (queue_started − this).
+        // PTT = 760ms (VAD silence window already elapsed) + (queue_started − this).
         speechEndTimeRef.current = Date.now();
         dispatch({ type: 'USER_SPEECH_END' });
         console.log('[CLIENT] send_end_of_utterance', { durationMs: ev.durationMs });
@@ -331,12 +332,14 @@ export function ConversationView() {
           clientRef.current?.sendPcm(frame.pcm);
           vadRef.current?.pushFrame(frame.rms, frame.timestamp);
         } else if (m === 'assistant-speaking') {
-          // Accumulate the last BARGE_IN_REQUIRED_VOICE_CHECKS frames as a ring
-          // buffer. On barge-in fire, these are flushed to the backend so STT
-          // captures the speech onset that triggered barge-in detection.
+          // Accumulate the last BARGE_IN_PRE_BUFFER_FRAMES frames as a ring
+          // buffer. On barge-in fire these are flushed to the backend so STT
+          // sees the syllable that triggered barge-in. Buffer holds 320 ms —
+          // the 160 ms confirmation window plus another 160 ms of pre-detection
+          // audio so quiet onsets ("s", "ş", "m", "n") aren't clipped.
           const buf = bargeInPcmBufferRef.current;
           buf.push(frame.pcm);
-          if (buf.length > BARGE_IN_REQUIRED_VOICE_CHECKS) buf.shift();
+          if (buf.length > BARGE_IN_PRE_BUFFER_FRAMES) buf.shift();
           bargeInRef.current?.pushFrame(frame.rms);
         }
       },
