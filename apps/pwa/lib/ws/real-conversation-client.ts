@@ -174,9 +174,11 @@ export class RealConversationClient implements ConversationClient {
 
     const result = wsServerMessageSchema.safeParse(parsed);
     if (!result.success) {
-      this.opts.onError(
-        new Error(`Invalid server message: ${result.error.message}`),
-      );
+      // Unknown message type from backend — skip silently so the session stays
+      // alive. A fatal onError here would kill TTS playback and freeze the UI
+      // whenever the backend adds a new notification type before the schema is
+      // updated (calendar_reminder_created, future types).
+      console.warn('[WS] Unrecognised server message (schema gap):', (parsed as { type?: unknown }).type, result.error.message);
       return;
     }
 

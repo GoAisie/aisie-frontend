@@ -63,6 +63,16 @@ export const wsErrorSchema = z.object({
   type: z.literal('error'),
   message: z.string(),
 });
+// Emitted when the LLM dispatches create_calendar_reminder and the event is
+// persisted. PWA uses it to refresh the calendar view and show a toast.
+// start_at uses z.string().datetime() without offset:true because the backend
+// stores naive datetimes (user's intended local time, no tz info).
+export const wsCalendarReminderCreatedSchema = z.object({
+  type: z.literal('calendar_reminder_created'),
+  event_id: uuidSchema,
+  title: z.string(),
+  start_at: z.string().datetime({ offset: false }),
+});
 
 export const wsServerMessageSchema = z.discriminatedUnion('type', [
   wsReadySchema,
@@ -76,6 +86,7 @@ export const wsServerMessageSchema = z.discriminatedUnion('type', [
   wsTemplateSwitchedSchema,
   wsCustomerCreatedSchema,
   wsFollowupScheduledSchema,
+  wsCalendarReminderCreatedSchema,
   wsErrorSchema,
 ]);
 export type WsServerMessage = z.infer<typeof wsServerMessageSchema>;

@@ -518,6 +518,7 @@ function handleServerMessage(
     case 'template_switched':
     case 'customer_created':
     case 'followup_scheduled':
+    case 'calendar_reminder_created':
       // Emitted by the real backend as side effects of LLM tool calls and
       // calendar_auto. The streaming UI doesn't render toasts for them yet
       // (Faz 3 polish will) — they're exhaustively listed here so the Zod
