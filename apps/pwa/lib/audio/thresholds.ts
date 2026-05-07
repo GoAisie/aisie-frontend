@@ -42,16 +42,17 @@ export const BARGE_IN_THRESHOLD = IS_IOS ? 800 : 600;
 // so STT quality is not materially affected. Does NOT change Perceived Turn
 // Time (PTT) — that clock starts at end_of_utterance, not speech_start.
 //
-// REQUIRED_SILENCE_CHECKS raised to 38 (760 ms) after 360 ms still cut speakers
-// off mid-thought. Typical Turkish sentence-boundary pauses sit at 500-1500 ms
-// while filler pauses are 200-400 ms; 760 ms threads between the two so the
-// VAD waits for an actual sentence end without making the wait feel artificial.
-// PTT cost of going from 360 ms → 760 ms is +400 ms of irreducible floor; this
-// is recouped by Soniox manual finalize (saved ~800 ms) and the streaming-LLM
-// first-chunk path (saved ~500-1000 ms), so net latency still beats the
-// pre-streaming baseline by a comfortable margin.
+// REQUIRED_SILENCE_CHECKS raised to 50 (1000 ms) after 760 ms was still cutting
+// speakers off mid-thought in real-device tests — users were getting "ZetaTech
+// var, Z..." truncations because the natural mid-sentence pause crossed 760 ms.
+// Typical Turkish sentence-boundary pauses sit at 500-1500 ms while filler
+// pauses are 200-400 ms; 1000 ms threads between the two with extra safety
+// margin so the VAD waits for an actual sentence end. PTT cost of going from
+// 760 ms → 1000 ms is +240 ms of irreducible floor; this is recouped by Soniox
+// manual finalize (saved ~800 ms) and the streaming-LLM first-chunk path
+// (saved ~500-1000 ms), so net latency still beats the pre-streaming baseline.
 export const REQUIRED_VOICE_CHECKS = 8;
-export const REQUIRED_SILENCE_CHECKS = 38;
+export const REQUIRED_SILENCE_CHECKS = 50;
 
 // Raised from 5 → 8 frames (160 ms) — barge-in needs more confidence to avoid
 // killing TTS on ambient bleed or brief plosives. Real intentional interruption

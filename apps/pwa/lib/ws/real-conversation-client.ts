@@ -22,6 +22,14 @@ export class RealConversationClient implements ConversationClient {
   private ws: WebSocket | null = null;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private currentTts: TtsStream | null = null;
+  // After sendBargeIn() fires, TTS PCM frames already in transit on the WS
+  // would otherwise reach handleMessage() and play out *after* the
+  // PlaybackEngine.stop() that the barge-in handler triggered — leaking a
+  // fragment of stale TTS into the user's ear. We drop binary frames while
+  // this flag is set, and clear it on the next tts_chunk_start (= a fresh
+  // TTS turn whose audio we *do* want to play). Pattern documented in
+  // Pipecat issue #3077.
+  private bargeInDropActive = false;
   private readonly opts: ConversationClientOptions;
 
   constructor(opts: ConversationClientOptions) {
@@ -97,6 +105,7 @@ export class RealConversationClient implements ConversationClient {
     }
     this.ws = null;
     this.currentTts = null;
+    this.bargeInDropActive = false;
     this.opts.onState('closed');
   }
 
@@ -120,6 +129,10 @@ export class RealConversationClient implements ConversationClient {
   }
 
   sendBargeIn(): void {
+    // Arm the in-flight TTS drop window before the control message goes out
+    // so that any binary frames the receive loop processes between now and
+    // the next tts_chunk_start are discarded (see bargeInDropActive comment).
+    this.bargeInDropActive = true;
     this.sendControl({ type: 'barge_in' });
   }
 
@@ -142,6 +155,13 @@ export class RealConversationClient implements ConversationClient {
         this.opts.onError(
           new Error('Unexpected binary frame outside a TTS stream'),
         );
+        return;
+      }
+      if (this.bargeInDropActive) {
+        // In-flight TTS frames after barge_in — drop until the next
+        // tts_chunk_start clears the window. PlaybackEngine has already
+        // been stopped on the barge-in path; enqueueing here would create
+        // a fresh AudioBufferSourceNode and play stale TTS to the user.
         return;
       }
       // Defend against an odd-byte chunk sneaking through (HTTP transfer
@@ -185,6 +205,10 @@ export class RealConversationClient implements ConversationClient {
     const msg: WsServerMessage = result.data;
     if (msg.type === 'tts_chunk_start') {
       this.currentTts = { sampleRate: msg.sample_rate, format: 'pcm' };
+      // A new TTS turn — clear the post-barge-in drop window so its frames
+      // play normally. Frames from the previous (cancelled) TTS turn that
+      // arrived before tts_end were already dropped in the binary branch.
+      this.bargeInDropActive = false;
     } else if (msg.type === 'tts_end') {
       this.currentTts = null;
     }
@@ -205,6 +229,7 @@ export class RealConversationClient implements ConversationClient {
     }
     this.ws = null;
     this.currentTts = null;
+    this.bargeInDropActive = false;
     console.log('[WS] close', { code: ev.code, reason: ev.reason, wasClean: ev.wasClean });
     this.opts.onState('closed');
     // Clean shutdown → nothing to surface. Non-1000 closes (e.g. 1008 auth

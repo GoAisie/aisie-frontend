@@ -5,7 +5,6 @@ import type { Dispatch } from 'react';
 import type { WsServerMessage } from '@aisie/shared';
 import { MicButton, type MicButtonMode } from '@/components/MicButton';
 import {
-  BARGE_IN_PRE_BUFFER_FRAMES,
   BargeInDetector,
   MicCapture,
   PlaybackEngine,
@@ -151,11 +150,6 @@ export function ConversationView() {
   const modeRef = useRef<MicButtonMode>('idle');
   modeRef.current = state.mode;
 
-  // Ring buffer of the last BARGE_IN_PRE_BUFFER_FRAMES (320 ms) PCM frames
-  // captured during assistant-speaking. Flushed to backend right after
-  // sendBargeIn() so STT receives the speech onset (including quiet fricative
-  // / nasal pre-confirmation audio) that triggered barge-in detection.
-  const bargeInPcmBufferRef = useRef<Int16Array[]>([]);
   // Wall-clock timestamp of send_end_of_utterance; used to compute full PTT
   // (760ms VAD window + backend processing + network + AudioContext scheduling).
   const speechEndTimeRef = useRef<number>(0);
@@ -168,7 +162,6 @@ export function ConversationView() {
   // without touching React state. Called from both endSession (user taps to
   // stop) and the error path (so the error message survives the cleanup).
   const teardown = useCallback(async () => {
-    bargeInPcmBufferRef.current = [];
     speechEndTimeRef.current = 0;
     if (replayTimerRef.current !== null) {
       clearTimeout(replayTimerRef.current);
@@ -221,8 +214,6 @@ export function ConversationView() {
         }
       },
       onEnded: () => {
-        // Clear ring buffer — TTS is done, the barge-in window has closed.
-        bargeInPcmBufferRef.current = [];
         bargeInRef.current?.disable();
         // Flip to 'listening' only after the last PCM buffer drains so the
         // mic doesn't open while TTS audio is still bleeding into the room.
@@ -237,16 +228,13 @@ export function ConversationView() {
       // emits turn_complete in response.
       playback.stop();
       console.log('[CLIENT] send_barge_in');
-      // Send barge_in control message FIRST so backend clears its buffer and
-      // opens the live STT queue before the pre-buffer PCM frames arrive.
+      // No ring-buffer flush: the frontend now streams PCM continuously
+      // during assistant-speaking (full-duplex), so backend's
+      // _audio_buffer[-_BARGE_IN_PRE_BUFFER_BYTES:] slice already contains
+      // the speech onset that triggered detection. sendBargeIn also sets
+      // the client-side drop-in-flight-TTS flag so frames already on the
+      // wire don't leak past PlaybackEngine.stop() (Pipecat #3077 pattern).
       clientRef.current?.sendBargeIn();
-      // Flush the ring buffer: these 8 × 20ms frames were captured during
-      // assistant-speaking and contain the speech onset that triggered detection.
-      const preBuffer = bargeInPcmBufferRef.current;
-      for (const pcm of preBuffer) {
-        clientRef.current?.sendPcm(pcm);
-      }
-      bargeInPcmBufferRef.current = [];
 
       // Start the 2-second replay timer. If the user interrupted by accident
       // (cough, noise) and no speech is recognized within 2s, the AI replays
@@ -328,18 +316,23 @@ export function ConversationView() {
       onFrame: (frame) => {
         dispatch({ type: 'RMS', rms: frame.rms });
         const m = modeRef.current;
-        if (m === 'listening' || m === 'user-speaking') {
+        // Full-duplex: stream PCM continuously regardless of mode. Backend
+        // appends every frame to _audio_buffer; the live STT queue is only
+        // open during user-speaking turns, so Soniox is never driven during
+        // TTS playback. Continuous capture keeps the browser AEC continuously
+        // trained, avoids AudioWorklet first-frame loss on every mode flip,
+        // and ensures backend's pre-buffer slice (last 1 s of _audio_buffer)
+        // contains real speech onset rather than zeros — the structural fix
+        // for the "first syllable lost when speaking near end of TTS" bug.
+        if (m === 'listening' || m === 'user-speaking' || m === 'assistant-speaking') {
           clientRef.current?.sendPcm(frame.pcm);
+        }
+        // VAD only runs in listening / user-speaking — driving it during
+        // assistant-speaking would race with barge-in detection and produce
+        // phantom speech_start events on TTS speaker bleed.
+        if (m === 'listening' || m === 'user-speaking') {
           vadRef.current?.pushFrame(frame.rms, frame.timestamp);
         } else if (m === 'assistant-speaking') {
-          // Accumulate the last BARGE_IN_PRE_BUFFER_FRAMES frames as a ring
-          // buffer. On barge-in fire these are flushed to the backend so STT
-          // sees the syllable that triggered barge-in. Buffer holds 320 ms —
-          // the 160 ms confirmation window plus another 160 ms of pre-detection
-          // audio so quiet onsets ("s", "ş", "m", "n") aren't clipped.
-          const buf = bargeInPcmBufferRef.current;
-          buf.push(frame.pcm);
-          if (buf.length > BARGE_IN_PRE_BUFFER_FRAMES) buf.shift();
           bargeInRef.current?.pushFrame(frame.rms);
         }
       },
