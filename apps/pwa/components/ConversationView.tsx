@@ -11,10 +11,17 @@ import {
   VadProcessor,
   attachLifecycle,
 } from '@/lib/audio';
+import { playPauseChime } from '@/lib/audio/chime';
+import { env } from '@/lib/env';
 import {
   type ConversationClient,
   createConversationClient,
 } from '@/lib/ws/conversation-client';
+import {
+  clearPausedConversationId,
+  getPausedConversationId,
+  savePausedConversationId,
+} from '@/lib/auth/session-store';
 
 type HistoryEntry = { user: string; assistant: string };
 
@@ -42,7 +49,9 @@ type Action =
   | { type: 'TTS_START' }
   | { type: 'TTS_END' }
   | { type: 'TURN_COMPLETE' }
-  | { type: 'PLAYBACK_ENDED' };
+  | { type: 'PLAYBACK_ENDED' }
+  | { type: 'PAUSE'; reason?: string }
+  | { type: 'RESUME' };
 
 const initialState: State = {
   mode: 'idle',
@@ -118,7 +127,47 @@ function reducer(state: State, action: Action): State {
       };
     }
     case 'PLAYBACK_ENDED':
+      // Don't override 'user-speaking' — mode reflects an active VAD speech
+      // window started after barge-in. Flipping to 'listening' here would
+      // falsely tell the post-barge-in replay timer "user is idle", causing
+      // a stray replay while the user is mid-utterance.
+      if (state.mode === 'user-speaking') return state;
       return { ...state, mode: 'listening' };
+    case 'PAUSE': {
+      // Reason keys are English (CLAUDE.md: code English, UI Turkish). Mapping
+      // happens here at the render boundary — internal callers stay neutral,
+      // user-facing text lives in one place. `manual` is special-cased to
+      // null banner because the user explicitly tapped pause and does not
+      // need a surprising "Duraklatıldı" message.
+      const REASON_BANNERS: Record<string, string | null> = {
+        manual: null,
+        idle_timeout: 'Duraklatıldı: uzun süredir konuşma yok.',
+        network_loss: 'Duraklatıldı: bağlantı kesildi.',
+        audio_suspended: 'Duraklatıldı: ses bağlantısı kesildi.',
+        overloaded:
+          'Yapay zeka servisi şu anda yoğun. Birkaç dakika sonra devam edin.',
+      };
+      const banner = action.reason
+        ? REASON_BANNERS[action.reason] ?? null
+        : null;
+      // Clear in-flight turn surface (partial transcript, current AI text)
+      // because resuming starts a clean listening window — mid-turn audio is
+      // discarded by design. `history` survives so the user sees prior turns
+      // when they resume.
+      return {
+        ...state,
+        mode: 'paused',
+        partial: '',
+        final: '',
+        assistantText: '',
+        rms: 0,
+        error: banner,
+      };
+    }
+    case 'RESUME':
+      // Hand-off to the connect() promise. The actual mode flip to 'listening'
+      // happens once the new WS is open and the mic is restarted.
+      return { ...state, mode: 'connecting', error: null };
   }
 }
 
@@ -193,13 +242,57 @@ export function ConversationView() {
   }, []);
 
   const endSession = useCallback(async () => {
+    // Tell the backend BEFORE we tear down the WS — once the socket closes the
+    // signal cannot reach the server. The backend's WS finally block reads this
+    // flag to decide whether to run post-correction + email + pipeline_finalize.
+    // Without this flag the conversation is left for the 1h cleanup cron.
+    try {
+      clientRef.current?.sendCloseSession();
+    } catch {
+      /* WS may already be tearing down — ignore */
+    }
     await teardown();
+    // RESET drops the paused conversation_id along with everything else; the
+    // user has explicitly chosen to close, so there is nothing to resume.
+    clearPausedConversationId();
     dispatch({ type: 'RESET' });
   }, [teardown]);
 
-  const startSession = useCallback(async () => {
+  // Lightweight pause: mic + WS + playback teardown WITHOUT touching React state.
+  // Reused by manual button taps, the 60s idle timer, network-loss detection,
+  // and the iOS phone-call AudioContext suspension hook. The conversation_id is
+  // already in sessionStorage by the time the first `turn_complete` fires, so a
+  // resume can pick up where this left off.
+  const pauseSession = useCallback(
+    async (reason?: string) => {
+      if (!clientRef.current && !micRef.current && !playbackRef.current) {
+        // Nothing to pause; idempotent guard for double-fires (e.g. idle timer
+        // races with a manual tap).
+        return;
+      }
+      console.log('[PAUSE] start', { reason: reason ?? 'manual' });
+      // Chime fires on every pause (manual + auto). Single helper keeps the
+      // UX consistent and avoids accidentally skipping the cue on a path the
+      // caller forgot to wire up — pauseSession is the single chokepoint.
+      playPauseChime();
+      await teardown();
+      dispatch({ type: 'PAUSE', reason });
+    },
+    [teardown],
+  );
+
+  const startSession = useCallback(async (conversationId?: string) => {
     if (clientRef.current) return;
     dispatch({ type: 'SET_MODE', mode: 'connecting' });
+
+    // Promise that resolves on backend `ready` arrival. Resume + Soniox prewarm
+    // can take 1–2 s; mic must NOT start before this so the user cannot speak
+    // into a cold STT pipeline. The onReady handler installed on the client
+    // (below) resolves this promise.
+    let readyResolve: (() => void) | null = null;
+    const readyPromise = new Promise<void>((resolve) => {
+      readyResolve = resolve;
+    });
 
     const playback = new PlaybackEngine({
       sampleRate: 24000,
@@ -260,6 +353,14 @@ export function ConversationView() {
 
     const vad = new VadProcessor((ev) => {
       if (ev.type === 'speech-start') {
+        // Cancel any pending replay timer — VAD detected user voice, so the
+        // post-barge-in/error replay path (which assumes user went silent)
+        // no longer applies. clearTimeout on null/expired is a documented
+        // browser no-op, so the unconditional clear is safe.
+        if (replayTimerRef.current !== null) {
+          clearTimeout(replayTimerRef.current);
+          replayTimerRef.current = null;
+        }
         dispatch({ type: 'USER_SPEECH_START' });
         clientRef.current?.sendSpeechStart();
       } else {
@@ -275,26 +376,57 @@ export function ConversationView() {
 
     const client = createConversationClient({
       onMessage: (msg) => {
+        // Persist conversation_id from every turn_complete so a manual pause
+        // (or a tab reload mid-session) has it ready in sessionStorage.
+        // Idempotent — overwriting with the same id is free.
+        if (msg.type === 'turn_complete' && msg.conversation_id) {
+          savePausedConversationId(msg.conversation_id);
+        }
         // Cancel replay timer the moment a confirmed transcript arrives —
         // the user spoke and was understood, so no replay is needed.
         if (msg.type === 'final_transcript' && replayTimerRef.current !== null) {
           clearTimeout(replayTimerRef.current);
           replayTimerRef.current = null;
         }
-        // On empty-STT error while waiting after barge-in: restart the 2s
-        // window instead of letting the timer fire during the next speech
-        // attempt. Without this, the timer fires while mode='user-speaking'
-        // (the guard blocks it) and there is no second chance to replay.
-        if (msg.type === 'error' && replayTimerRef.current !== null) {
-          clearTimeout(replayTimerRef.current);
+        // On any backend error (including empty-STT live_empty_fallback):
+        // schedule a replay so the conversation never silently stalls. The
+        // earlier version gated this on `replayTimerRef.current !== null`,
+        // which only refreshed an existing barge-in timer — once a barge-in
+        // produced a real (or garbage-text, e.g. cough → "öhö") transcript
+        // and the timer was cleared, subsequent empty-STT errors would not
+        // fire any replay and the user heard silence with only the inline
+        // error banner. Always (re)setting the timer here means every
+        // "ses anlaşılamadı" path gets a 2 s grace window before the
+        // assistant replays its last line — recoverable UX in the silent-
+        // failure case, mildly redundant in the noisy case (acceptable).
+        if (msg.type === 'error') {
+          // Provider overload / auth-class failure: backend tags `kind:"rate_limit"`
+          // when its retry budget is exhausted on a recoverable upstream issue
+          // (Anthropic 429, OpenAI quota, Soniox 429, etc.). Auto-pause is the
+          // right UX — replay_last would just re-trigger the same upstream
+          // failure, and a silent error banner would leave the user wondering
+          // whether they should keep speaking. pauseSession plays the chime,
+          // tears down mic+ws+playback, and dispatches PAUSE with a special
+          // 'yoğunluk' reason that the reducer translates to a Turkish
+          // user-friendly banner.
+          if (msg.kind === 'rate_limit') {
+            console.log('[PAUSE] rate_limit_received', { message: msg.message });
+            void pauseSession('overloaded');
+            return;
+          }
+          if (replayTimerRef.current !== null) {
+            clearTimeout(replayTimerRef.current);
+          }
           replayTimerRef.current = setTimeout(() => {
             if (modeRef.current === 'listening') {
               replayTimerRef.current = null;
               console.log('[REPLAY] sending replay_last — no transcript after 2s post empty-STT');
               clientRef.current?.sendReplayLast();
             }
-            // Same stale-ID pattern as the barge-in timer above:
-            // guard blocked → ref stays non-null → next error can restart.
+            // Stale-ID pattern: guard blocked (mode != 'listening') → ref
+            // stays non-null storing an expired timeout id. The next error
+            // arrival re-enters the clearTimeout branch above (no-op on the
+            // stale id, documented browser behavior) and replaces it.
           }, 2000);
         }
         handleServerMessage(msg, dispatch, playback, bargeIn);
@@ -308,6 +440,49 @@ export function ConversationView() {
         // Release resources but keep the error visible — endSession would
         // RESET the state and the user would never see what went wrong.
         void teardown();
+      },
+      onNetworkLoss: () => {
+        // The pong watchdog already burned its 15s grace before firing — this
+        // callback IS the "network has been silent for too long" signal. Pause
+        // immediately rather than introducing a second timer.
+        console.log('[PAUSE] network_loss');
+        void pauseSession('network_loss');
+      },
+      onEvicted: (reason) => {
+        // Another device opened the same conversation_id and stole the slot.
+        // We end (not pause): the other device now owns the resume key. Show a
+        // banner via ERROR so the user understands why the session closed.
+        console.log('[WS] evicted', { reason });
+        clearPausedConversationId();
+        dispatch({
+          type: 'ERROR',
+          error: 'Bu konuşma başka bir cihazda devam ediyor.',
+        });
+        void teardown();
+      },
+      onResumeFailed: (reason) => {
+        // Backend rejected our conversation_id — clear sessionStorage so we
+        // don't keep retrying. The session continues as a fresh conversation
+        // (the backend already created a new Conversation in `_ensure_conversation_exists`).
+        console.log('[RESUME] failed', { reason });
+        clearPausedConversationId();
+        if (reason === 'closed') {
+          dispatch({
+            type: 'BACKEND_WARNING',
+            error: 'Önceki konuşma kapandı. Yeni bir oturumdayız.',
+          });
+        } else if (reason === 'legacy_history') {
+          dispatch({
+            type: 'BACKEND_WARNING',
+            error: 'Eski konuşma kayıtları yüklenemedi, yeni bir oturum başladı.',
+          });
+        }
+        // not_found / forbidden / lookup_error: silent fall-through — fresh
+        // session will run its course and the user can keep speaking.
+      },
+      onReady: () => {
+        console.log('[CLIENT] backend_ready');
+        readyResolve?.();
       },
     });
     clientRef.current = client;
@@ -343,14 +518,44 @@ export function ConversationView() {
       // All AudioContext creation happens here — still synchronous inside
       // the user-gesture frame that started this call, so iOS unlocks both.
       await playback.prepare();
-      await client.connect();
+      // `conversationId` is the resume hint — when present the backend reloads
+      // the existing Conversation from MongoDB. When absent, this connect path
+      // creates a fresh session as before.
+      await client.connect(conversationId);
+      // Wait for the backend `ready` signal BEFORE opening the mic. The backend
+      // sends ready only after session.initialize() finishes (provider health
+      // checks + Soniox prewarm + optional resume reload). 30 s ceiling matches
+      // the backend's outer init timeout — if the wait exceeds it, the backend
+      // is hung and proceeding to mic.start would let the user speak into a
+      // cold STT pipeline. Treat as fatal: throw, fall to ERROR mode, let user
+      // retry. Earlier this used a non-fatal 8 s with `console.warn` and
+      // proceeded anyway, but that produced a coordination bug: when backend
+      // init was slow (5–7 s), frontend flipped to 'listening' before the
+      // backend was ready, breaking the premature-speech prevention guarantee.
+      await Promise.race([
+        readyPromise,
+        new Promise<void>((_, reject) =>
+          setTimeout(() => reject(new Error('Bağlantı kurulamadı (zaman aşımı), lütfen tekrar deneyin.')), 30_000),
+        ),
+      ]);
       await mic.start();
       dispatch({ type: 'SET_MODE', mode: 'listening' });
     } catch (e) {
       dispatch({ type: 'ERROR', error: friendlyError(e) });
       void teardown();
     }
-  }, [teardown]);
+  }, [teardown, pauseSession]);
+
+  // Resume from a paused state by re-opening the WS with the stored
+  // conversation_id. If sessionStorage has lost the id (private browsing,
+  // storage quota, manual clear) we fall through to a fresh start so the user
+  // is never stuck with an unrecoverable paused screen.
+  const resumeSession = useCallback(async () => {
+    const id = getPausedConversationId();
+    console.log('[RESUME] start', { conversation_id: id });
+    dispatch({ type: 'RESUME' });
+    await startSession(id ?? undefined);
+  }, [startSession]);
 
   useEffect(() => {
     return () => {
@@ -359,11 +564,13 @@ export function ConversationView() {
   }, [teardown]);
 
   // OS/browser lifecycle events that would silently break the mic or the
-  // socket. We treat them all as "end the session, user re-taps" — the
-  // alternative (auto-resume) would need conversation_id rehydration in
-  // the backend and isn't worth the complexity for pilot.
+  // socket. With the pause/resume feature in place, soft interruptions
+  // (iOS phone call → AudioContext suspended) become a pause rather than a
+  // session-killing error so the user can resume seamlessly. Hard hardware
+  // changes (headset unplug, page navigation) still tear down — they are
+  // not recoverable through resume alone.
   useEffect(() => {
-    const active = state.mode !== 'idle' && state.mode !== 'error';
+    const active = state.mode !== 'idle' && state.mode !== 'error' && state.mode !== 'paused';
     if (!active) return;
 
     const detach = attachLifecycle({
@@ -374,31 +581,63 @@ export function ConversationView() {
         });
         void teardown();
       },
-      onHidden: () => {
-        // Release mic so iOS/other apps can take it; user re-taps on return.
-        void endSession();
-      },
       onUnload: () => {
         void teardown();
       },
       onAudioContextSuspended: () => {
-        dispatch({
-          type: 'ERROR',
-          error: 'Ses bağlantısı askıya alındı, devam etmek için dokunun.',
-        });
-        void teardown();
+        // iOS dropping the AudioContext mid-conversation usually means an
+        // incoming call; transitioning to pause keeps history+conversation_id
+        // intact so the user can resume after the call ends.
+        console.log('[PAUSE] audio_context_suspended');
+        void pauseSession('audio_suspended');
       },
     });
     return detach;
-  }, [state.mode, endSession, teardown]);
+  }, [state.mode, teardown, pauseSession]);
+
+  // 60-second idle auto-pause: when the assistant is sitting in `listening`
+  // with no user speech detected, release the mic + WS and flip to paused.
+  // Implemented as a useEffect that re-arms on every mode change so transient
+  // states (user-speaking, processing, assistant-speaking) reset the clock.
+  // Reads modeRef inside the timer callback because the closed-over `state.mode`
+  // is the value at scheduling time — a fast mode flip after we set the timer
+  // would otherwise fire pause against stale state.
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (idleTimerRef.current !== null) {
+      clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = null;
+    }
+    if (state.mode !== 'listening') return;
+    idleTimerRef.current = setTimeout(() => {
+      idleTimerRef.current = null;
+      if (modeRef.current !== 'listening') return;
+      console.log('[PAUSE] idle_timer_fired');
+      void pauseSession('idle_timeout');
+    }, 10_000); // TEMP: production should be 60_000 — reduced to 10 s for live test convenience
+    return () => {
+      if (idleTimerRef.current !== null) {
+        clearTimeout(idleTimerRef.current);
+        idleTimerRef.current = null;
+      }
+    };
+  }, [state.mode, pauseSession]);
 
   const onClick = useCallback(() => {
+    // The single mic button is now overloaded with three semantics keyed off
+    // the current mode:
+    //   idle/error           → start a fresh session
+    //   paused               → resume the existing session
+    //   anything else active → pause the current session (NOT end — close is
+    //                          a separate secondary button shown only while paused)
     if (state.mode === 'idle' || state.mode === 'error') {
       void startSession();
+    } else if (state.mode === 'paused') {
+      void resumeSession();
     } else {
-      void endSession();
+      void pauseSession('manual');
     }
-  }, [state.mode, startSession, endSession]);
+  }, [state.mode, startSession, resumeSession, pauseSession]);
 
   const active = state.mode !== 'idle' && state.mode !== 'error';
 
@@ -436,6 +675,16 @@ export function ConversationView() {
 
       <MicButton mode={state.mode} rms={state.rms} onClick={onClick} />
 
+      {state.mode === 'paused' && (
+        <button
+          type="button"
+          onClick={endSession}
+          style={pausedCloseButtonStyle}
+        >
+          Konuşmayı Kapat
+        </button>
+      )}
+
       <p style={{ margin: 0, fontSize: 15, color: '#6b6b74', minHeight: 22 }}>
         {statusMessage(state.mode)}
       </p>
@@ -448,7 +697,10 @@ export function ConversationView() {
         </p>
       )}
 
-      {(state.partial || state.final || state.assistantText) && (
+      {/* TranscriptPanel is dev-only by default. Production is voice-only —
+          the user listens, the on-screen text is reserved for debugging.
+          Override per-environment via NEXT_PUBLIC_SHOW_TRANSCRIPT=1. */}
+      {env.showTranscript && (state.partial || state.final || state.assistantText) && (
         <TranscriptPanel
           partial={state.partial}
           final={state.final}
@@ -457,7 +709,8 @@ export function ConversationView() {
         />
       )}
 
-      {state.history.length > 0 && <HistoryPanel entries={state.history} />}
+      {/* Same env gate as TranscriptPanel — both surface transcript text. */}
+      {env.showTranscript && state.history.length > 0 && <HistoryPanel entries={state.history} />}
     </div>
   );
 }
@@ -536,10 +789,24 @@ function statusMessage(mode: MicButtonMode): string {
       return 'Düşünüyorum…';
     case 'assistant-speaking':
       return 'Yanıtlıyor — sözünü kesmek için konuşun';
+    case 'paused':
+      return 'Duraklatıldı — devam etmek için dokunun';
     case 'error':
       return 'Bir sorun oluştu';
   }
 }
+
+const pausedCloseButtonStyle: React.CSSProperties = {
+  padding: '10px 18px',
+  background: '#fee2e2',
+  border: '1px solid #fca5a5',
+  borderRadius: 10,
+  color: '#991b1b',
+  fontSize: 14,
+  fontWeight: 500,
+  cursor: 'pointer',
+  marginTop: -4,
+};
 
 function friendlyError(e: unknown): string {
   if (e instanceof DOMException) {

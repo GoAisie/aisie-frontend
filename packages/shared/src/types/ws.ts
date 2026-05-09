@@ -30,6 +30,10 @@ export const wsTtsEndSchema = z.object({ type: z.literal('tts_end') });
 
 export const wsTurnCompleteSchema = z.object({
   type: z.literal('turn_complete'),
+  // Set on every turn so the client can persist it in sessionStorage and supply
+  // it back on reconnect. Required for the WS pause/resume flow — the backend
+  // uses it as the resume hint to rehydrate the Conversation document.
+  conversation_id: uuidSchema.nullable().optional(),
   report_id: uuidSchema.nullable().optional(),
   report_data: reportDataSchema.nullable().optional(),
   report_status: reportStatusSchema.nullable().optional(),
@@ -62,6 +66,11 @@ export const wsFollowupScheduledSchema = z.object({
 export const wsErrorSchema = z.object({
   type: z.literal('error'),
   message: z.string(),
+  // Discriminator for the client error handler: 'rate_limit' triggers an
+  // auto-pause + chime path (provider-overload UX), other kinds surface as
+  // a soft warning banner with the existing replay_last fallback. Optional
+  // for backward compatibility with older error emissions that don't classify.
+  kind: z.enum(['rate_limit', 'timeout', 'auth', 'unknown']).optional(),
 });
 // Emitted when the LLM dispatches create_calendar_reminder and the event is
 // persisted. PWA uses it to refresh the calendar view and show a toast.

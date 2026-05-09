@@ -90,3 +90,39 @@ export const useSessionStore = create<SessionState>((set) => ({
 export function getAccessToken(): string | null {
   return useSessionStore.getState().accessToken;
 }
+
+// ----- Paused conversation_id (per-tab) -----------------------------------
+//
+// Lives in sessionStorage rather than localStorage so each browser tab carries its
+// own pause state. Two reasons:
+//   1. Two tabs racing to resume the same conversation_id would each open a WS
+//      and then evict the other — wasteful, confusing UX.
+//   2. Pause state is inherently ephemeral; closing the tab is a clear "give up"
+//      signal, after which the backend cleanup cron will finalize the conversation
+//      after 1 hour of `updated_at` inactivity.
+const STORAGE_KEY_PAUSED_CONVERSATION = 'aisie_paused_conversation_id';
+
+export function savePausedConversationId(id: string): void {
+  try {
+    sessionStorage.setItem(STORAGE_KEY_PAUSED_CONVERSATION, id);
+  } catch {
+    // Private browsing or storage quota — pause UI still works in-memory; the
+    // user just cannot survive a tab reload, which is acceptable degradation.
+  }
+}
+
+export function getPausedConversationId(): string | null {
+  try {
+    return sessionStorage.getItem(STORAGE_KEY_PAUSED_CONVERSATION);
+  } catch {
+    return null;
+  }
+}
+
+export function clearPausedConversationId(): void {
+  try {
+    sessionStorage.removeItem(STORAGE_KEY_PAUSED_CONVERSATION);
+  } catch {
+    // ignore
+  }
+}

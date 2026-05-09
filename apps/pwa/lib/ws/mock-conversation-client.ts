@@ -65,7 +65,9 @@ export class MockConversationClient implements ConversationClient {
     this.opts = opts;
   }
 
-  async connect(): Promise<void> {
+  async connect(_conversationId?: string): Promise<void> {
+    // The mock has no real backend state to rehydrate, so the resume hint is
+    // accepted for interface parity and silently ignored.
     if (this.connected) return;
     this.opts.onState('connecting');
     // Feigned handshake delay — makes the UX match a real WS roundtrip so
@@ -74,6 +76,10 @@ export class MockConversationClient implements ConversationClient {
     this.connected = true;
     this.opts.onState('connected');
     this.emit({ type: 'ready' });
+    // Mock has no backend init / Soniox prewarm — fire onReady immediately so
+    // the caller's await for ready unblocks. Mirrors the real client which fires
+    // it from the ready message handler.
+    this.opts.onReady?.();
   }
 
   async disconnect(): Promise<void> {
@@ -133,6 +139,11 @@ export class MockConversationClient implements ConversationClient {
     const idx = (this.turnIdx - 1 + CANNED_TURNS.length) % CANNED_TURNS.length;
     const turn = CANNED_TURNS[idx]!;
     this.streamAssistantTurn(turn.aiText);
+  }
+
+  sendCloseSession(): void {
+    // Mock has no backend post-correction or email — close_session is a no-op.
+    // Implemented purely for ConversationClient interface parity.
   }
 
   private streamAssistantTurn(text: string): void {

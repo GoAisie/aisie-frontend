@@ -21,6 +21,10 @@ const WS_PATH = '/api/v1/conversations/ws/universal';
 export class RealConversationClient implements ConversationClient {
   private ws: WebSocket | null = null;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
+  // Pong watchdog: set on every ping send, cleared on the matching pong receive.
+  // If it fires the network is presumed dead and `onNetworkLoss` fires once. The
+  // outer ConversationView treats this as a 15s-tolerance pre-pause signal.
+  private pongWatchdog: ReturnType<typeof setTimeout> | null = null;
   private currentTts: TtsStream | null = null;
   // After sendBargeIn() fires, TTS PCM frames already in transit on the WS
   // would otherwise reach handleMessage() and play out *after* the
@@ -36,7 +40,7 @@ export class RealConversationClient implements ConversationClient {
     this.opts = opts;
   }
 
-  async connect(): Promise<void> {
+  async connect(conversationId?: string): Promise<void> {
     if (this.ws) return;
     this.opts.onState('connecting');
 
@@ -49,17 +53,30 @@ export class RealConversationClient implements ConversationClient {
     // WS handshake can't carry an Authorization header reliably (browsers
     // drop custom headers on new WebSocket()), so the gateway expects the
     // token as a query parameter — same contract we've used since Faz 1.
+    // `conversation_id` is the optional resume hint — when present the backend
+    // rehydrates the matching Conversation from MongoDB instead of starting fresh.
     const base = env.wsBaseUrl.replace(/\/$/, '');
-    const url = `${base}${WS_PATH}?token=${encodeURIComponent(token)}`;
+    const params = new URLSearchParams({ token });
+    if (conversationId) params.set('conversation_id', conversationId);
+    const url = `${base}${WS_PATH}?${params.toString()}`;
 
     const ws = new WebSocket(url);
     ws.binaryType = 'arraybuffer';
     this.ws = ws;
 
+    // 20 s ceiling on WS handshake. Browser default is ~60 s which leaves the
+    // user staring at the connecting animation for an unreasonable amount of
+    // time when the gateway is unreachable. On timeout we force-close the
+    // half-open WS so the underlying TCP socket is released — without this the
+    // browser would keep the connection in CONNECTING state until its own
+    // default timeout. Failure surfaces as the same Error subclass the open/
+    // error listeners produce, so the catch in startSession handles it
+    // identically to a real connection refusal.
     await new Promise<void>((resolve, reject) => {
       const cleanup = () => {
         ws.removeEventListener('open', onOpen);
         ws.removeEventListener('error', onError);
+        if (timeoutId !== null) clearTimeout(timeoutId);
       };
       const onOpen = () => {
         cleanup();
@@ -70,6 +87,11 @@ export class RealConversationClient implements ConversationClient {
         cleanup();
         reject(new Error('Sunucuya bağlanılamadı.'));
       };
+      const timeoutId: ReturnType<typeof setTimeout> = setTimeout(() => {
+        cleanup();
+        try { ws.close(); } catch { /* ignore */ }
+        reject(new Error('Bağlantı zaman aşımına uğradı.'));
+      }, 20_000);
       ws.addEventListener('open', onOpen, { once: true });
       ws.addEventListener('error', onError, { once: true });
     });
@@ -82,10 +104,24 @@ export class RealConversationClient implements ConversationClient {
 
     // ALB idle timeout is 60s by default (we raise to 3600s in prod, but the
     // client ping keeps us safe either way). 30s is well under both.
+    // Each ping arms a 15s pong watchdog: if the backend doesn't reply within the
+    // grace window, the transport is presumed dead and we surface
+    // `onNetworkLoss`. The 15s value matches the user-facing pause-resume design
+    // (auto-pause after 15s of network silence) — see CLAUDE.md.
     this.pingTimer = setInterval(() => {
-      if (this.ws?.readyState === WebSocket.OPEN) {
-        this.ws.send(JSON.stringify({ type: 'ping' }));
+      if (this.ws?.readyState !== WebSocket.OPEN) return;
+      this.ws.send(JSON.stringify({ type: 'ping' }));
+      if (this.pongWatchdog) {
+        // A previous ping never got its pong AND we are about to send another:
+        // collapse the misses into a single onNetworkLoss event by re-arming the
+        // watchdog rather than firing twice.
+        clearTimeout(this.pongWatchdog);
       }
+      this.pongWatchdog = setTimeout(() => {
+        this.pongWatchdog = null;
+        console.warn('[WS] pong_watchdog_fired — no pong within 15s after ping');
+        this.opts.onNetworkLoss?.();
+      }, 15_000);
     }, 30_000);
 
     this.opts.onState('connected');
@@ -95,6 +131,10 @@ export class RealConversationClient implements ConversationClient {
     if (this.pingTimer) {
       clearInterval(this.pingTimer);
       this.pingTimer = null;
+    }
+    if (this.pongWatchdog) {
+      clearTimeout(this.pongWatchdog);
+      this.pongWatchdog = null;
     }
     if (this.ws && this.ws.readyState <= WebSocket.OPEN) {
       try {
@@ -139,6 +179,11 @@ export class RealConversationClient implements ConversationClient {
   sendReplayLast(): void {
     console.log('[CLIENT] send_replay_last');
     this.sendControl({ type: 'replay_last' });
+  }
+
+  sendCloseSession(): void {
+    console.log('[CLIENT] send_close_session');
+    this.sendControl({ type: 'close_session' });
   }
 
   private sendControl(payload: Record<string, unknown>): void {
@@ -188,7 +233,32 @@ export class RealConversationClient implements ConversationClient {
 
     // The "pong" reply to our keepalive isn't part of the shared schema —
     // handle it before validation so Zod doesn't treat it as an error.
+    // Pong arrival also clears the watchdog: the backend is alive.
     if (typeof parsed === 'object' && parsed !== null && (parsed as { type?: string }).type === 'pong') {
+      if (this.pongWatchdog) {
+        clearTimeout(this.pongWatchdog);
+        this.pongWatchdog = null;
+      }
+      return;
+    }
+
+    // session_evicted and resume_failed are session-control messages introduced by
+    // the WS pause/resume feature. Neither is part of the shared turn-protocol
+    // schema (they are about the WS slot lifecycle, not the conversation turn),
+    // so we route them via dedicated callbacks before schema validation.
+    const parsedType = typeof parsed === 'object' && parsed !== null
+      ? (parsed as { type?: string }).type
+      : undefined;
+    if (parsedType === 'session_evicted') {
+      const reason = (parsed as { reason?: string }).reason || 'unknown';
+      console.log('[WS] session_evicted', { reason });
+      this.opts.onEvicted?.(reason);
+      return;
+    }
+    if (parsedType === 'resume_failed') {
+      const reason = (parsed as { reason?: string }).reason || 'unknown';
+      console.log('[WS] resume_failed', { reason });
+      this.opts.onResumeFailed?.(reason);
       return;
     }
 
@@ -203,6 +273,11 @@ export class RealConversationClient implements ConversationClient {
     }
 
     const msg: WsServerMessage = result.data;
+    if (msg.type === 'ready') {
+      // Backend init + Soniox prewarm completed. Caller waits on this signal
+      // before starting the mic so the user cannot speak before STT is hot.
+      this.opts.onReady?.();
+    }
     if (msg.type === 'tts_chunk_start') {
       this.currentTts = { sampleRate: msg.sample_rate, format: 'pcm' };
       // A new TTS turn — clear the post-barge-in drop window so its frames
@@ -226,6 +301,10 @@ export class RealConversationClient implements ConversationClient {
     if (this.pingTimer) {
       clearInterval(this.pingTimer);
       this.pingTimer = null;
+    }
+    if (this.pongWatchdog) {
+      clearTimeout(this.pongWatchdog);
+      this.pongWatchdog = null;
     }
     this.ws = null;
     this.currentTts = null;
