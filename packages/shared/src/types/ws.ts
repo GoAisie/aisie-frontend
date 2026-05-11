@@ -7,7 +7,17 @@ import { reportDataSchema, reportStatusSchema } from './report';
 // only a subset is emitted; the rest will flow once streaming is wired.
 
 // ===== Server → Client =====
-export const wsReadySchema = z.object({ type: z.literal('ready') });
+export const wsReadySchema = z.object({
+  type: z.literal('ready'),
+  // Set by the backend on the initial handshake so the frontend can persist
+  // it in sessionStorage immediately, without waiting for the first
+  // turn_complete. Without this, a mid-turn tab switch / mid-turn pause
+  // (user leaves before turn_complete fires) loses the conversation_id and
+  // resume on return opens a fresh session instead of reattaching.
+  // Optional for backward compatibility with older backend builds that do
+  // not emit it; the existing turn_complete path still saves the id.
+  conversation_id: uuidSchema.nullable().optional(),
+});
 
 export const wsPartialTranscriptSchema = z.object({
   type: z.literal('partial_transcript'),
