@@ -192,6 +192,12 @@ function applyAction(state: ConversationState, action: Action): ConversationStat
         idle_timeout: 'Duraklatıldı: uzun süredir konuşma yok.',
         network_loss: 'Duraklatıldı: bağlantı kesildi.',
         audio_suspended: 'Duraklatıldı: ses bağlantısı kesildi.',
+        // `mic_lost` fires when MediaStreamTrack ends mid-session — Android
+        // signals this for permission revoke, concurrent-app mic seizure
+        // (incoming phone call, another voice app), and Bluetooth unpair.
+        // Distinct from `audio_suspended` (AudioContext-level interrupt) so
+        // the banner can guide the user toward the right recovery step.
+        mic_lost: 'Mikrofon erişimi kesildi. Lütfen kontrol edip tekrar deneyin.',
         overloaded:
           'Yapay zeka servisi şu anda yoğun. Birkaç dakika sonra devam edin.',
         // 'background' = user switched tabs / sent app to background / locked
@@ -319,6 +325,12 @@ function friendlyError(e: unknown): string {
         return 'Mikrofon bu cihazda 16 kHz çalamıyor.';
       case 'SecurityError':
         return 'Mikrofon yalnızca güvenli bağlantıda (HTTPS) açılabilir.';
+      case 'NotSupportedError':
+        // Thrown by MicCapture when AudioContext.state === 'interrupted' at
+        // start — Chrome 136+ signals exclusive audio access by another app
+        // (Android: active phone call). resume() rejects per spec, so the
+        // only recovery is "wait for the call to end, then tap again".
+        return 'Ses sistemi şu anda kullanılamıyor. Aktif bir telefon araması varsa, bittikten sonra tekrar deneyin.';
     }
   }
   if (e instanceof Error && e.message) return e.message;
@@ -720,6 +732,32 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
           bargeIn?.pushFrame(frame.rms);
         }
       },
+      onTrackEnded: () => {
+        // MediaStream audio track ended mid-session — Android signals this for
+        // mic permission revoke, concurrent-app mic seizure (incoming phone
+        // call, another voice app starting), and Bluetooth headset unpair.
+        // Route to pauseSession('mic_lost') so the user sees a clear banner
+        // ("Mikrofon erişimi kesildi…") and can recover with a mic tap once
+        // the underlying issue is resolved. Without this signal mic frames
+        // silently stop flowing and the failure is invisible until backend
+        // STT times out ~30 s later.
+        console.log('[MIC] track_ended');
+        void useConversationStore.getState().pauseSession('mic_lost');
+      },
+      onAudioInterrupted: () => {
+        // Audio session became unavailable mid-session. Fires for one of two
+        // browser signals (see MicCapture.ts):
+        //   • AudioContext.state === 'interrupted' — Android phone call took
+        //     exclusive audio access (Chrome 136+).
+        //   • MediaStreamTrack 'mute' event — Android concurrent-capture
+        //     policy silenced the stream while another app holds the mic.
+        // Both collapse to the same UX: pause with `audio_suspended` reason,
+        // banner says "Ses sistemi duraklatıldı...", user resumes manually
+        // once the interruption clears. resume() rejects in interrupted
+        // state per spec — no point auto-recovering.
+        console.log('[MIC] audio_interrupted');
+        void useConversationStore.getState().pauseSession('audio_suspended');
+      },
     });
     mic = newMic;
 
@@ -740,7 +778,7 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
         if (modeRef !== 'listening') return;
         console.log('[PAUSE] idle_timer_fired');
         void useConversationStore.getState().pauseSession('idle_timeout');
-      }, 10_000);
+      }, 60_000);
     });
 
     // Lifecycle subscription: attach OS/browser listeners on entry to an
@@ -937,7 +975,9 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
     // Chime fires on every pause (manual + auto). Single helper keeps the
     // UX consistent and avoids accidentally skipping the cue on a path the
     // caller forgot to wire up — pauseSession is the single chokepoint.
-    playPauseChime();
+    // Fire-and-forget: chime runs in its own AudioContext, independent of
+    // the playback/mic contexts being torn down below, so we don't await.
+    void playPauseChime();
     await teardown();
     get()._apply({ type: 'PAUSE', reason });
   },

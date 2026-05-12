@@ -13,6 +13,25 @@ export type MicFrame = {
 
 export type MicCaptureOptions = {
   onFrame: (frame: MicFrame) => void;
+  // Fires when the MediaStream audio track ends mid-session — Android signals
+  // this for permission revoke, concurrent app mic seizure (incoming call,
+  // another voice app), and Bluetooth unpair. Without this signal the mic
+  // stops feeding frames silently and the user spends ~30 s in "why isn't it
+  // working" mode before backend STT timeout produces a generic error.
+  onTrackEnded?: () => void;
+  // Fires when the audio session becomes unavailable to the page. Two distinct
+  // browser signals collapse into this single callback:
+  //   1. AudioContext.state === 'interrupted' (Chrome 136+, Apr 2025): the UA
+  //      paused playback due to exclusive audio access by another app — on
+  //      Android this is the canonical signal for a phone call grabbing the
+  //      audio hardware. resume() rejects while interrupted; the page MUST
+  //      pause and wait for user gesture to retry.
+  //   2. MediaStreamTrack 'mute' event: Android's concurrent-capture policy
+  //      lets getUserMedia succeed during a call but SILENCES the captured
+  //      audio (RMS≈0). Some Chrome builds surface this via the track mute
+  //      event. We listen as defense-in-depth — older Chrome (<136) won't
+  //      fire interrupted, and some OEM ROMs are inconsistent about mute.
+  onAudioInterrupted?: () => void;
 };
 
 export class MicCapture {
@@ -56,6 +75,34 @@ export class MicCapture {
     this.ctx = ctx;
 
     try {
+      // Chrome 136+ exposes 'interrupted' as an AudioContext state — fired
+      // when the UA hands exclusive audio access to another app (Android
+      // phone call is the dominant trigger). If we're already interrupted
+      // at construction, the user tapped mic during an active call; bail
+      // out fast with a clear error rather than entering listening mode
+      // with a silently-silenced stream. resume() rejects in this state per
+      // spec, so retrying is pointless — only a user gesture AFTER the
+      // interruption ends recovers.
+      if ((ctx.state as string) === 'interrupted') {
+        throw new DOMException(
+          'Audio session interrupted (likely active phone call)',
+          'NotSupportedError',
+        );
+      }
+
+      // Mid-session interruption — call answered while PWA was already
+      // listening. Spec lets the UA transition running → interrupted at any
+      // time. We forward to the conversation store which routes through
+      // pauseSession('audio_suspended'). Older Chrome (<136) never fires
+      // this; the page degrades to the pre-fix behavior (silent capture
+      // with no banner). track.onmute below catches the same scenario via
+      // a different signal on older builds.
+      ctx.addEventListener('statechange', () => {
+        if ((ctx.state as string) === 'interrupted') {
+          this.opts.onAudioInterrupted?.();
+        }
+      });
+
       // Next.js serves /public at the site root, so the absolute path
       // resolves regardless of the route the user is on.
       await ctx.audioWorklet.addModule('/worklets/vad-processor.js');
@@ -71,6 +118,29 @@ export class MicCapture {
           sampleRate: AUDIO_SAMPLE_RATE,
           channelCount: 1,
         },
+      });
+
+      // Surface mid-session track loss to the caller. The browser fires
+      // `ended` on the underlying MediaStreamTrack when the OS revokes mic
+      // permission, when a higher-priority audio session (phone call,
+      // another voice app) seizes the device, or when a Bluetooth headset
+      // unpairs mid-stream. We forward this once so the conversation store
+      // can pause the session with the `mic_lost` reason — otherwise the
+      // worklet keeps pulling silence and the failure is invisible until
+      // the backend STT times out.
+      this.stream.getAudioTracks().forEach((track) => {
+        track.addEventListener('ended', () => {
+          this.opts.onTrackEnded?.();
+        });
+        // Android concurrent-capture policy: when a phone call holds the
+        // audio hardware, getUserMedia succeeds but the framework silently
+        // silences the stream (RMS≈0). Some Chrome builds expose this via
+        // the track 'mute' event; we treat it as an audio-interrupt signal.
+        // unmute is intentionally NOT auto-resumed — pause is sticky, the
+        // user resumes by tapping mic after the call ends.
+        track.addEventListener('mute', () => {
+          this.opts.onAudioInterrupted?.();
+        });
       });
 
       this.source = ctx.createMediaStreamSource(this.stream);

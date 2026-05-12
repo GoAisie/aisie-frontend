@@ -311,11 +311,29 @@ export class RealConversationClient implements ConversationClient {
     this.bargeInDropActive = false;
     console.log('[WS] close', { code: ev.code, reason: ev.reason, wasClean: ev.wasClean });
     this.opts.onState('closed');
-    // Clean shutdown → nothing to surface. Non-1000 closes (e.g. 1008 auth
-    // failure, 1013 rate limit) bubble up as errors so the UI can show them.
-    if (ev.code !== 1000 && ev.code !== 1001) {
-      this.opts.onError(new Error(`WS closed (${ev.code}): ${ev.reason || 'unknown'}`));
+    // Map close codes to UX category per RFC 6455 + WebSocket.org production
+    // best practice. The previous rule "anything not 1000/1001 is an error"
+    // was too aggressive — 1006 (the most common code for transient network
+    // drops and gateway restarts) and 1011-1014 are recoverable conditions,
+    // not unrecoverable errors. Routing them to onNetworkLoss shows a
+    // "Duraklatıldı: bağlantı kesildi" pause banner that the user can
+    // resume from with a mic tap; the old path showed a panic-inducing
+    // "Bir sorun oluştu" screen for every gateway hiccup.
+    //
+    // - 1000 / 1001: clean shutdown — nothing to surface.
+    // - 1005 (no status) / 1006 (abnormal) / 1011-1014 (server transient):
+    //   recoverable, route to onNetworkLoss.
+    // - Everything else (1002 protocol, 1003 unsupported, 1007 invalid,
+    //   1008 policy/auth, 1009 too-big, 1010 missing-ext, app codes):
+    //   genuine error, surface to UI.
+    if (ev.code === 1000 || ev.code === 1001) {
+      return;
     }
+    if (ev.code === 1005 || ev.code === 1006 || (ev.code >= 1011 && ev.code <= 1014)) {
+      this.opts.onNetworkLoss?.();
+      return;
+    }
+    this.opts.onError(new Error(`WS closed (${ev.code}): ${ev.reason || 'unknown'}`));
   }
 
   // Kept for diagnostics — allows the ConnectionState enum to stay in

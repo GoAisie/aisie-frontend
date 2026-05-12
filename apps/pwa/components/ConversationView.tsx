@@ -43,9 +43,13 @@ export function ConversationView() {
     //   anything else active → pause the current session (NOT end — close is
     //                          a separate secondary button shown only while paused)
     const store = useConversationStore.getState();
-    if (mode === 'idle' || mode === 'error') {
-      void store.startSession();
-    } else if (mode === 'paused') {
+    // Use resumeSession() for all "start a new attempt" paths — it reads any
+    // paused_id from sessionStorage and uses it as a resume hint, falling
+    // through to a fresh start when the id is absent (idle, post-end). Without
+    // this, recovery from error mode would silently drop paused_id and start
+    // a fresh conversation, breaking history continuity across the
+    // pause → error → retry chain that the M4 close-code routing introduces.
+    if (mode === 'idle' || mode === 'error' || mode === 'paused') {
       void store.resumeSession();
     } else {
       void store.pauseSession('manual');
@@ -105,9 +109,29 @@ export function ConversationView() {
       {active && <RmsBar rms={rms} accent={mode} />}
 
       {error && (
-        <p role="alert" style={errorStyle}>
-          {error}
-        </p>
+        <div role="alert" style={errorStyle}>
+          <p style={{ margin: 0 }}>{error}</p>
+          {/* Mic permission errors are the only path where the user is
+              expected to take action OUTSIDE the app to recover. friendlyError
+              normalises both "Mikrofon izni reddedildi" (NotAllowedError) and
+              "Mikrofon başka bir uygulama tarafından kullanılıyor"
+              (NotReadableError) to messages starting with "Mikrofon", so a
+              single prefix check covers both. The instruction text routes
+              the user to the recovery surface — on Android Chrome that's
+              the per-site permission screen reachable from the lock icon
+              in the address bar OR from system Settings → Apps → Chrome →
+              Permissions → Microphone. We deliberately give a textual hint
+              instead of a `chrome://settings/...` link because chrome://
+              URLs are blocked from web-page navigation on every modern
+              Chrome build. */}
+          {error.startsWith('Mikrofon') && (
+            <p style={{ margin: '6px 0 0', fontSize: 13, color: '#7c2d12' }}>
+              İzin vermek için adres çubuğundaki kilit simgesine dokunun veya{' '}
+              <strong>Ayarlar → Uygulamalar → Chrome → İzinler → Mikrofon</strong>{' '}
+              yolundan açın.
+            </p>
+          )}
+        </div>
       )}
 
       {/* TranscriptPanel is dev-only by default. Production is voice-only —
