@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { BottomTabs } from '@/components/BottomTabs';
 import { IosInstallPrompt } from '@/components/IosInstallPrompt';
+import { LogoutButton } from '@/components/LogoutButton'; // fixed-position button next to bell
 import { useSessionStore } from '@/lib/auth/session-store';
 import { apiFetch } from '@/lib/api-client';
 import { subscribeToPush } from '@/lib/push';
@@ -57,7 +58,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <Link
         href="/notifications"
         style={{
-          position: 'fixed', top: 12, right: 16, zIndex: 40,
+          position: 'fixed', top: 12, right: 60, zIndex: 40,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           width: 36, height: 36, borderRadius: '50%',
           background: '#fff', border: '1px solid #e5e7eb',
@@ -80,6 +81,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </span>
         )}
       </Link>
+      <LogoutButton />
       <main>{children}</main>
       <BottomTabs />
       <IosInstallPrompt />

@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useMutation } from '@tanstack/react-query';
 import { companyAdminRegistrationSchema } from '@aisie/shared';
 import { apiFetch, ApiError } from '@/lib/api-client';
+import { PasswordInput } from '@/components/PasswordInput';
 
 // Registration creates both a new Company AND its admin user in a single call —
 // main-service handles the @Transactional persistence via
@@ -65,12 +66,17 @@ export default function RegisterPage() {
       <Field label="Yönetici Adı" value={form.adminFirstName} onChange={update('adminFirstName')} />
       <Field label="Yönetici Soyadı" value={form.adminLastName} onChange={update('adminLastName')} />
       <Field label="E-posta" type="email" value={form.adminEmail} onChange={update('adminEmail')} />
-      <Field
-        label="Şifre (en az 8 karakter)"
-        type="password"
-        value={form.adminPassword}
-        onChange={update('adminPassword')}
-      />
+      <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <span style={{ fontSize: 13, color: '#6b6b74' }}>Şifre (en az 8 karakter)</span>
+        <PasswordInput
+          name="new-password"
+          id="adminPassword"
+          autoComplete="new-password"
+          required
+          value={form.adminPassword}
+          onChange={(v) => setForm((prev) => ({ ...prev, adminPassword: v }))}
+        />
+      </label>
 
       {errorMessage && (
         <p role="alert" style={{ color: '#dc2626', fontSize: 13 }}>

@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { apiFetch } from '@/lib/api-client';
-import type { CalendarEvent, CalendarEventKind } from '@aisie/shared';
+import type { CalendarEvent } from '@aisie/shared';
 
 const MONTH_NAMES = [
   'Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran',
@@ -11,16 +11,11 @@ const MONTH_NAMES = [
 ];
 const DAY_LABELS = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
 
-const KIND_DOT: Record<CalendarEventKind, string> = {
-  'follow-up': '#f59e0b',
-  meeting: '#3b82f6',
-  custom: '#7c3aed',
-};
-const KIND_PALETTE: Record<CalendarEventKind, { label: string; bg: string; color: string }> = {
-  'follow-up': { label: 'Takip', bg: '#fef3c7', color: '#92400e' },
-  meeting: { label: 'Toplantı', bg: '#dbeafe', color: '#1e40af' },
-  custom: { label: 'Özel', bg: '#ede9fe', color: '#5b21b6' },
-};
+// `kind` and `status` were removed from CalendarEvent in May 2026. Every
+// event renders with the same neutral marker — no longer color-coded by
+// type. Cancelled events flow through `to_be_deleted` so they're filtered
+// at the backend list endpoint and never reach the UI.
+const EVENT_DOT_COLOR = '#7c3aed';
 
 // JS getDay() returns 0=Sun…6=Sat; convert to ISO weekday (0=Mon…6=Sun).
 function jsToIso(jsDay: number) { return (jsDay + 6) % 7; }
@@ -38,6 +33,7 @@ export default function CalendarPage() {
     const d = new Date(); d.setDate(1); return d;
   });
   const [selectedDate, setSelectedDate] = useState<string>(today);
+  const [showPicker, setShowPicker] = useState(false);
 
   const year  = viewMonth.getFullYear();
   const month = viewMonth.getMonth(); // 0-indexed
@@ -89,14 +85,34 @@ export default function CalendarPage() {
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Ajanda</h1>
       </header>
 
-      {/* Month navigation */}
+      {/* Month navigation — click title to open year/month picker */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-        <button onClick={() => goMonth(-1)} style={navBtnStyle}>‹</button>
-        <span style={{ fontSize: 16, fontWeight: 600, color: '#0b0b0f' }}>
+        <button onClick={() => goMonth(-1)} style={navBtnStyle} aria-label="Önceki ay">‹</button>
+        <button
+          onClick={() => setShowPicker(true)}
+          style={titleBtnStyle}
+          aria-label={`${MONTH_NAMES[month]} ${year} — yıl ve ay seçici aç`}
+        >
           {MONTH_NAMES[month]} {year}
-        </span>
-        <button onClick={() => goMonth(1)} style={navBtnStyle}>›</button>
+          <span style={{ fontSize: 11, color: '#9ca3af', marginLeft: 6 }}>▾</span>
+        </button>
+        <button onClick={() => goMonth(1)} style={navBtnStyle} aria-label="Sonraki ay">›</button>
       </div>
+
+      {showPicker && (
+        <MonthYearPicker
+          currentYear={year}
+          currentMonth={month}
+          onPick={(y, m) => {
+            setViewMonth(new Date(y, m, 1));
+            const newMonthStr = `${y}-${String(m + 1).padStart(2, '0')}`;
+            const todayMonthStr = today.slice(0, 7);
+            setSelectedDate(newMonthStr === todayMonthStr ? today : `${newMonthStr}-01`);
+            setShowPicker(false);
+          }}
+          onClose={() => setShowPicker(false)}
+        />
+      )}
 
       {isError && (
         <p style={{ color: '#dc2626', fontSize: 13, marginBottom: 8 }}>Ajanda yüklenemedi.</p>
@@ -137,12 +153,12 @@ export default function CalendarPage() {
                 </span>
                 {dayEvents.length > 0 && (
                   <div style={{ display: 'flex', gap: 2, justifyContent: 'center', marginTop: 3 }}>
-                    {dayEvents.slice(0, 3).map((e, i) => (
+                    {dayEvents.slice(0, 3).map((_e, i) => (
                       <span
                         key={i}
                         style={{
                           width: 5, height: 5, borderRadius: '50%', flexShrink: 0,
-                          background: isSelected ? 'rgba(255,255,255,0.85)' : (KIND_DOT[e.kind] ?? '#9ca3af'),
+                          background: isSelected ? 'rgba(255,255,255,0.85)' : EVENT_DOT_COLOR,
                         }}
                       />
                     ))}
@@ -174,23 +190,13 @@ export default function CalendarPage() {
         ) : (
           <ul style={{ padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
             {selectedEvents.map((e) => {
-              const pal = KIND_PALETTE[e.kind] ?? { label: e.kind, bg: '#f3f4f6', color: '#374151' };
               const time = new Date(e.start_at).toLocaleTimeString('tr-TR', {
                 hour: '2-digit', minute: '2-digit',
               });
-              const isCancelled = e.status === 'cancelled';
               return (
-                <li key={e.event_id} style={{ ...cardStyle, opacity: isCancelled ? 0.55 : 1 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 4 }}>
-                    <strong style={{ fontSize: 15, color: '#0b0b0f', flex: 1, lineHeight: 1.3 }}>{e.title}</strong>
-                    <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-                      {isCancelled && (
-                        <span style={{ ...badgeStyle, background: '#f3f4f6', color: '#6b7280' }}>İptal</span>
-                      )}
-                      <span style={{ ...badgeStyle, background: pal.bg, color: pal.color }}>{pal.label}</span>
-                    </div>
-                  </div>
-                  <p style={{ margin: 0, color: '#7c3aed', fontSize: 13, fontWeight: 500 }}>{time}</p>
+                <li key={e.event_id} style={cardStyle}>
+                  <strong style={{ fontSize: 15, color: '#0b0b0f', lineHeight: 1.3, display: 'block' }}>{e.title}</strong>
+                  <p style={{ margin: '4px 0 0', color: '#7c3aed', fontSize: 13, fontWeight: 500 }}>{time}</p>
                   {e.description && (
                     <p style={{ margin: '6px 0 0', color: '#6b6b74', fontSize: 13, lineHeight: 1.45 }}>
                       {e.description}
@@ -210,6 +216,12 @@ const navBtnStyle: React.CSSProperties = {
   background: 'none', border: '1px solid #e5e7eb', borderRadius: 8,
   width: 36, height: 36, padding: 0, cursor: 'pointer',
   fontSize: 20, color: '#374151', display: 'flex', alignItems: 'center', justifyContent: 'center',
+};
+const titleBtnStyle: React.CSSProperties = {
+  background: 'none', border: '1px solid transparent', borderRadius: 8,
+  padding: '4px 10px', cursor: 'pointer',
+  fontSize: 16, fontWeight: 600, color: '#0b0b0f',
+  display: 'flex', alignItems: 'center',
 };
 const weekHeaderGrid: React.CSSProperties = {
   display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', marginBottom: 4,
@@ -235,7 +247,131 @@ const cardStyle: React.CSSProperties = {
   listStyle: 'none', padding: '12px 14px',
   background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12,
 };
-const badgeStyle: React.CSSProperties = {
-  fontSize: 11, fontWeight: 600, padding: '2px 8px',
-  borderRadius: 999, whiteSpace: 'nowrap', flexShrink: 0,
-};
+
+// ----- Year/month picker modal -------------------------------------------------
+//
+// Two-stage commit: tapping a year row updates the pending year but keeps the
+// modal open so the user can then pick a month in the same gesture. Tapping a
+// month fires onPick(year, month) and closes — single confirm action.
+
+function MonthYearPicker({
+  currentYear,
+  currentMonth,
+  onPick,
+  onClose,
+}: {
+  currentYear: number;
+  currentMonth: number;
+  onPick: (year: number, month: number) => void;
+  onClose: () => void;
+}) {
+  const [pendingYear, setPendingYear] = useState(currentYear);
+  const thisYear = new Date().getFullYear();
+  // ±5 around the current "today" year — covers retrospective viewing and a
+  // little forward planning without overwhelming the year strip.
+  const years = useMemo(() => {
+    const arr: number[] = [];
+    for (let y = thisYear - 5; y <= thisYear + 5; y++) arr.push(y);
+    return arr;
+  }, [thisYear]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 50,
+        background: 'rgba(15, 16, 25, 0.55)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: 16,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-label="Yıl ve ay seçimi"
+        style={{
+          width: '100%', maxWidth: 340,
+          background: '#fff', borderRadius: 14, padding: 16,
+          boxShadow: '0 18px 40px rgba(0,0,0,0.25)',
+        }}
+      >
+        <p style={{ margin: '0 0 10px', fontSize: 12, fontWeight: 600, color: '#6b6b74', textTransform: 'uppercase', letterSpacing: 0.4 }}>
+          Yıl
+        </p>
+        <div
+          style={{
+            display: 'flex', gap: 6, overflowX: 'auto',
+            paddingBottom: 6, marginBottom: 14,
+            WebkitOverflowScrolling: 'touch',
+          }}
+        >
+          {years.map((y) => {
+            const active = y === pendingYear;
+            return (
+              <button
+                key={y}
+                onClick={() => setPendingYear(y)}
+                style={{
+                  flex: '0 0 auto',
+                  padding: '8px 14px', borderRadius: 999,
+                  border: '1px solid ' + (active ? '#7c3aed' : '#e5e7eb'),
+                  background: active ? '#7c3aed' : '#fff',
+                  color: active ? '#fff' : '#374151',
+                  fontSize: 14, fontWeight: active ? 600 : 500,
+                  cursor: 'pointer', whiteSpace: 'nowrap',
+                }}
+              >
+                {y}
+              </button>
+            );
+          })}
+        </div>
+
+        <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 600, color: '#6b6b74', textTransform: 'uppercase', letterSpacing: 0.4 }}>
+          Ay
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+          {MONTH_NAMES.map((name, idx) => {
+            const isCurrent = pendingYear === currentYear && idx === currentMonth;
+            return (
+              <button
+                key={idx}
+                onClick={() => onPick(pendingYear, idx)}
+                style={{
+                  padding: '10px 4px', borderRadius: 8,
+                  border: '1px solid ' + (isCurrent ? '#7c3aed' : '#e5e7eb'),
+                  background: isCurrent ? '#ede9fe' : '#fff',
+                  color: isCurrent ? '#5b21b6' : '#374151',
+                  fontSize: 13, fontWeight: isCurrent ? 600 : 500,
+                  cursor: 'pointer',
+                }}
+              >
+                {name.slice(0, 3)}
+              </button>
+            );
+          })}
+        </div>
+
+        <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end' }}>
+          <button
+            onClick={onClose}
+            style={{
+              background: 'none', border: 'none', color: '#6b6b74',
+              fontSize: 13, padding: '6px 4px', cursor: 'pointer',
+            }}
+          >
+            Kapat
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

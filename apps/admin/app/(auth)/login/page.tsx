@@ -6,6 +6,7 @@ import { useMutation } from '@tanstack/react-query';
 import { loginRequestSchema, loginResponseSchema, type LoginResponse } from '@aisie/shared';
 import { apiFetch, ApiError } from '@/lib/api-client';
 import { useSessionStore } from '@/lib/auth/session-store';
+import { PasswordInput } from '@/components/PasswordInput';
 
 export default function AdminLoginPage() {
   const router = useRouter();
@@ -28,9 +29,10 @@ export default function AdminLoginPage() {
     onSuccess: (data) => {
       setSession({ accessToken: data.accessToken, refreshToken: data.refreshToken, user: data.user });
       // session-store derives the role from the JWT claim itself; we read
-      // it back here so only COMPANY_ADMIN can reach the admin area.
+      // it back here so only admins (SUPER_ADMIN or COMPANY_ADMIN) can reach
+      // the admin area. Other roles see a friendly forbidden message.
       const role = useSessionStore.getState().role;
-      if (role !== 'COMPANY_ADMIN') {
+      if (role !== 'COMPANY_ADMIN' && role !== 'SUPER_ADMIN') {
         useSessionStore.getState().clearSession();
         setRoleError('Bu panele yalnızca şirket yöneticileri erişebilir.');
         return;
@@ -67,6 +69,8 @@ export default function AdminLoginPage() {
         <span style={{ fontSize: 13, color: '#6b6b74' }}>E-posta</span>
         <input
           type="email"
+          name="email"
+          id="email"
           autoComplete="email"
           required
           value={email}
@@ -77,13 +81,13 @@ export default function AdminLoginPage() {
 
       <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         <span style={{ fontSize: 13, color: '#6b6b74' }}>Şifre</span>
-        <input
-          type="password"
+        <PasswordInput
+          name="password"
+          id="password"
           autoComplete="current-password"
           required
           value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          style={inputStyle}
+          onChange={setPassword}
         />
       </label>
 

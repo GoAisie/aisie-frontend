@@ -7,6 +7,7 @@ import { useMutation } from '@tanstack/react-query';
 import { loginRequestSchema, loginResponseSchema, type LoginResponse } from '@aisie/shared';
 import { apiFetch, ApiError } from '@/lib/api-client';
 import { useSessionStore } from '@/lib/auth/session-store';
+import { PasswordInput } from '@/components/PasswordInput';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -56,6 +57,8 @@ export default function LoginPage() {
         <span style={{ fontSize: 13, color: '#6b6b74' }}>E-posta</span>
         <input
           type="email"
+          name="email"
+          id="email"
           autoComplete="email"
           required
           value={email}
@@ -66,13 +69,13 @@ export default function LoginPage() {
 
       <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         <span style={{ fontSize: 13, color: '#6b6b74' }}>Şifre</span>
-        <input
-          type="password"
+        <PasswordInput
+          name="password"
+          id="password"
           autoComplete="current-password"
           required
           value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          style={inputStyle}
+          onChange={setPassword}
         />
       </label>
 
@@ -86,10 +89,9 @@ export default function LoginPage() {
         {login.isPending ? 'Giriş yapılıyor…' : 'Giriş Yap'}
       </button>
 
-      <p style={{ fontSize: 13, textAlign: 'center', color: '#6b6b74' }}>
-        Şirketiniz için yeni hesap mı lazım?{' '}
-        <Link href="/register" style={{ color: '#7c3aed', fontWeight: 600 }}>
-          Kayıt olun
+      <p style={{ fontSize: 13, textAlign: 'center', color: '#6b6b74', margin: 0 }}>
+        <Link href="/password-reset/request" style={{ color: '#7c3aed', fontWeight: 600 }}>
+          Şifremi unuttum
         </Link>
       </p>
     </form>

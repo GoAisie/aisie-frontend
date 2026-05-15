@@ -8,7 +8,8 @@ type AnalyticsSummary = {
   reports_this_week: number;
   reports_last_week: number;
   completion_rate: number;
-  pending_followups: number;
+  pending_today_events: number;
+  inprogress_reports: number;
   active_customers: number;
   calls_this_month: number;
 };
@@ -81,10 +82,16 @@ export default function DashboardPage() {
           trend="toplam rapor sayısı"
         />
         <Kpi
-          label="Bekleyen takip"
-          value={String(data.pending_followups)}
-          trend={data.pending_followups === 0 ? 'temiz' : 'ajanda sekmesinden dağıtılabilir'}
-          trendPositive={data.pending_followups <= 5}
+          label="Bugünkü etkinlik"
+          value={String(data.pending_today_events)}
+          trend={data.pending_today_events === 0 ? 'bugün boş' : 'ajandadan gör'}
+          trendPositive={data.pending_today_events === 0}
+        />
+        <Kpi
+          label="Yarım kalan rapor"
+          value={String(data.inprogress_reports)}
+          trend={data.inprogress_reports === 0 ? 'temiz' : 'raporlardan tamamla'}
+          trendPositive={data.inprogress_reports === 0}
         />
       </div>
     </section>

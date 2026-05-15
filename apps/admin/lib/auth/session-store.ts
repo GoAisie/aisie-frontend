@@ -10,7 +10,9 @@ const STORAGE_KEY_USER = 'aisie_admin_user';
 
 // Access token stays in memory only. Refresh token persisted in localStorage
 // so page reloads don't force the admin back to /login.
-export type AdminRole = 'COMPANY_ADMIN' | 'SALES_REP' | 'SALES_MANAGER';
+// SUPER_ADMIN added in Phase 4 — crosses company boundaries via the org
+// picker, with the gateway enforcing X-Acting-Company-Id authorization.
+export type AdminRole = 'SUPER_ADMIN' | 'COMPANY_ADMIN' | 'SALES_REP' | 'SALES_MANAGER';
 
 type SessionState = {
   accessToken: string | null;
@@ -36,7 +38,7 @@ function decodeRole(token: string): AdminRole | null {
       ? atob(padded)
       : Buffer.from(padded, 'base64').toString('utf-8');
     const claims = JSON.parse(json) as { role?: string };
-    if (claims.role === 'COMPANY_ADMIN' || claims.role === 'SALES_REP' || claims.role === 'SALES_MANAGER') {
+    if (claims.role === 'SUPER_ADMIN' || claims.role === 'COMPANY_ADMIN' || claims.role === 'SALES_REP' || claims.role === 'SALES_MANAGER') {
       return claims.role;
     }
     return null;

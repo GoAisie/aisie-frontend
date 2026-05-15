@@ -19,7 +19,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       router.replace('/login');
       return;
     }
-    if (role !== 'COMPANY_ADMIN') {
+    // SUPER_ADMIN + COMPANY_ADMIN are admins of the admin panel. Other roles
+    // (SALES_REP, SALES_MANAGER) bounce to /login with a forbidden marker.
+    if (role !== 'COMPANY_ADMIN' && role !== 'SUPER_ADMIN') {
       router.replace('/login?error=forbidden');
     }
   }, [initialized, accessToken, role, router]);
@@ -32,7 +34,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     );
   }
 
-  if (!accessToken || role !== 'COMPANY_ADMIN') {
+  if (!accessToken || (role !== 'COMPANY_ADMIN' && role !== 'SUPER_ADMIN')) {
     return (
       <div style={{ minHeight: '100dvh', display: 'grid', placeItems: 'center' }}>
         <p style={{ color: '#6b6b74', fontSize: 14 }}>Yetki kontrol ediliyor…</p>
