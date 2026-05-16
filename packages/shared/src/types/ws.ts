@@ -76,11 +76,20 @@ export const wsFollowupScheduledSchema = z.object({
 export const wsErrorSchema = z.object({
   type: z.literal('error'),
   message: z.string(),
-  // Discriminator for the client error handler: 'rate_limit' triggers an
-  // auto-pause + chime path (provider-overload UX), other kinds surface as
-  // a soft warning banner with the existing replay_last fallback. Optional
-  // for backward compatibility with older error emissions that don't classify.
-  kind: z.enum(['rate_limit', 'timeout', 'auth', 'unknown']).optional(),
+  // Discriminator for the client error handler. Each kind routes to a
+  // distinct UX outcome in conversation-store.ts:
+  //   - 'rate_limit': auto-pause + chime (provider-overload UX)
+  //   - 'timeout': auto-pause with backend_timeout banner
+  //   - 'tts_dead' (K-6 F1): auto-pause with tts_failed banner — TTS retry exhausted
+  //   - 'persistence': auto-pause with persistence_failed banner — DB write failed
+  //   - 'auth' / 'unknown': legacy soft-warning + replay_last fallback
+  // Optional for backward compatibility with older emissions that don't
+  // classify. Adding a new kind: update BOTH this schema AND the handler
+  // branch in conversation-store.ts — otherwise Zod silently drops the
+  // message (schema gap) and the frontend never reacts.
+  kind: z
+    .enum(['rate_limit', 'timeout', 'tts_dead', 'persistence', 'auth', 'unknown'])
+    .optional(),
 });
 // Emitted when the LLM dispatches create_calendar_reminder and the event is
 // persisted. PWA uses it to refresh the calendar view and show a toast.

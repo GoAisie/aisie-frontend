@@ -4,6 +4,7 @@ import { create } from 'zustand';
 import type { User } from '@aisie/shared';
 import { loginResponseSchema } from '@aisie/shared';
 import { env } from '../env';
+import { useActingCompanyStore } from './acting-company-store';
 
 const STORAGE_KEY_REFRESH = 'aisie_admin_refresh_token';
 const STORAGE_KEY_USER = 'aisie_admin_user';
@@ -55,7 +56,32 @@ export const useSessionStore = create<SessionState>((set) => ({
   initialized: false,
 
   setSession: ({ accessToken, refreshToken, user }) => {
-    set({ accessToken, refreshToken, user, role: decodeRole(accessToken) });
+    // Clear acting-company in two cases — both verified production bugs:
+    //
+    // (1) Cross-user login on same browser: a previous SUPER_ADMIN's org
+    //     selection leaks into a subsequent COMPANY_ADMIN session and bricks
+    //     every API request via the gateway's X-Acting-Company-Id check.
+    //
+    // (2) Non-SUPER_ADMIN role active: acting-company is a SUPER_ADMIN-only
+    //     feature. Consumers (users/customers pages) build URLs like
+    //     /api/v1/companies/{actingCompanyId}/users — if the stale id points
+    //     at a foreign company, COMPANY_ADMIN 403s on those endpoints too.
+    //     The api-client header gate (Fix #1, 2026-05-16) catches the header
+    //     path; clearing the state here catches the URL-builder path AND any
+    //     UI components that read the store directly.
+    //
+    // SUPER_ADMIN silent refresh preserves the selection (same-user, role
+    // === SUPER_ADMIN → neither condition fires).
+    const previousUserId = useSessionStore.getState().user?.publicId ?? null;
+    const newRole = decodeRole(accessToken);
+    if (
+      (previousUserId !== null && previousUserId !== user.publicId)
+      || newRole !== 'SUPER_ADMIN'
+    ) {
+      useActingCompanyStore.getState().setActingCompany(null, null);
+    }
+
+    set({ accessToken, refreshToken, user, role: newRole });
     try {
       localStorage.setItem(STORAGE_KEY_REFRESH, refreshToken);
       localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(user));

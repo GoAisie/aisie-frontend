@@ -66,6 +66,14 @@ export async function apiFetch<T>(path: string, opts: FetchOptions = {}): Promis
   if (body !== undefined && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
+  // Phase 1C: end-to-end trace_id propagation. Browser generates a fresh
+  // trace_id per request and forwards as X-Trace-ID; the gateway honours
+  // any existing X-Trace-ID before generating its own, so the same trace
+  // appears in browser console (logged by callers) AND backend log lines
+  // for that request. Enables single-grep correlation across hop layers.
+  if (!headers.has('X-Trace-ID')) {
+    headers.set('X-Trace-ID', crypto.randomUUID());
+  }
   if (!skipAuth) {
     const token = getAccessToken();
     if (token) headers.set('Authorization', `Bearer ${token}`);

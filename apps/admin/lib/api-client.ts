@@ -1,5 +1,5 @@
 import { env } from './env';
-import { getAccessToken, useSessionStore } from './auth/session-store';
+import { getAccessToken, getRole, useSessionStore } from './auth/session-store';
 import { getActingCompanyId } from './auth/acting-company-store';
 import { loginResponseSchema } from '@aisie/shared';
 
@@ -61,14 +61,29 @@ export async function apiFetch<T>(path: string, opts: FetchOptions = {}): Promis
   if (body !== undefined && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
+  // Phase 1C: end-to-end trace_id propagation. See PWA api-client for
+  // rationale — gateway honours any existing X-Trace-ID before generating
+  // its own, so the same trace appears in browser console + backend logs.
+  if (!headers.has('X-Trace-ID')) {
+    headers.set('X-Trace-ID', crypto.randomUUID());
+  }
   if (!skipAuth) {
     const token = getAccessToken();
     if (token) headers.set('Authorization', `Bearer ${token}`);
-    // X-Acting-Company-Id: only forwarded when set (SUPER_ADMIN with an org
-    // selection). The gateway validates and 403s if any non-SUPER_ADMIN ever
-    // tries this header, so leaving it unset for COMPANY_ADMIN is correct.
+    // X-Acting-Company-Id: SUPER_ADMIN-only. The gateway 403s every request
+    // with this header for non-SUPER_ADMIN roles (defense-in-depth security
+    // check). Role-gating here prevents the bug where a stale localStorage
+    // entry — e.g. left over from a previous SUPER_ADMIN session on the
+    // same browser — bricks a subsequent COMPANY_ADMIN login by forcing
+    // every request into a 403 (verified 2026-05-16: Ayşe Yılmaz could not
+    // load any data because the previous login's acting-company persisted).
+    const role = getRole();
     const actingCompanyId = getActingCompanyId();
-    if (actingCompanyId && !headers.has('X-Acting-Company-Id')) {
+    if (
+      role === 'SUPER_ADMIN'
+      && actingCompanyId
+      && !headers.has('X-Acting-Company-Id')
+    ) {
       headers.set('X-Acting-Company-Id', actingCompanyId);
     }
   }

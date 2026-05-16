@@ -206,6 +206,23 @@ function applyAction(state: ConversationState, action: Action): ConversationStat
         // tells them what to do. Surfacing an extra banner would feel like
         // an error message for a normal navigation gesture.
         background: null,
+        // F1/F2 (K-6): backend hits a non-recoverable failure during the turn
+        // and surfaces a typed `kind:` field. Each maps to a specific
+        // user-facing message so the user knows whether to wait, retry, or
+        // check input. Without these, the frontend would silently fall back
+        // to listening and the user has no signal that anything went wrong.
+        backend_timeout:
+          'Duraklatıldı: yanıt zamanında alınamadı. Tekrar deneyin.',
+        tts_failed:
+          'Duraklatıldı: yanıt sesi alınamadı. Tekrar deneyin.',
+        persistence_failed:
+          'Duraklatıldı: veri kaydedilemedi. Tekrar deneyin.',
+        // F4/F5 (K-6 frontend safety net): the mode-level watchdogs fire when
+        // the backend pipeline silently hangs without emitting any error. By
+        // the time we see this banner, the user has waited 30 s (processing)
+        // or 45 s (assistant-speaking) without progress.
+        backend_no_response:
+          'Duraklatıldı: yanıt servisinden cevap gelmedi. Tekrar deneyin.',
       };
       const banner = action.reason
         ? REASON_BANNERS[action.reason] ?? null
@@ -266,6 +283,23 @@ let replayTimer: ReturnType<typeof setTimeout> | null = null;
 // without VAD speech-start fires this. Re-armed on every mode change via the
 // store subscription installed in startSession.
 let idleTimer: ReturnType<typeof setTimeout> | null = null;
+
+// F4 (K-6 backend safety net): `processing` mode hang timer. Mode enters
+// `processing` after final_transcript arrives — backend is then expected
+// to run STT(complete)+LLM1+RL+LLM2-first-chunk and produce `tts_chunk_start`
+// within a bounded window. Real prod budget ~5–8 s; 30 s catches genuine
+// hangs (MongoDB stall, provider deadlock, LLM1-without-watchdog issues)
+// without firing on legitimately slow turns. Re-armed on every mode change
+// via the same subscription pattern as idleTimer.
+let processingHangTimer: ReturnType<typeof setTimeout> | null = null;
+
+// F5 (K-6 audio safety net): `assistant-speaking` mode without playback
+// progress. tts_chunk_start has arrived (client believes audio is coming)
+// but no PCM frames have queued into PlaybackEngine. Distinct from a normal
+// long response — onEnded fires when playback drains, mode transitions to
+// listening; this timer only matters if PlaybackEngine.framesEnqueued
+// stays at 0 for the full 45 s window after tts_chunk_start.
+let assistantSpeakingHangTimer: ReturnType<typeof setTimeout> | null = null;
 
 // Detach function returned by attachLifecycle. Held so the active-session
 // subscriber can release listeners when mode leaves the active set.
@@ -416,6 +450,19 @@ async function teardown(): Promise<void> {
   if (idleTimer !== null) {
     clearTimeout(idleTimer);
     idleTimer = null;
+  }
+  // F4/F5 (K-6): mode-level hang watchdogs share the idle-timer subscription
+  // — teardown must clear them so a paused/ended session does not keep
+  // firing pauseSession on stale state. The subscription itself is detached
+  // via unsubscribeIdleArm below (single sub fires arm/disarm for all three
+  // timers).
+  if (processingHangTimer !== null) {
+    clearTimeout(processingHangTimer);
+    processingHangTimer = null;
+  }
+  if (assistantSpeakingHangTimer !== null) {
+    clearTimeout(assistantSpeakingHangTimer);
+    assistantSpeakingHangTimer = null;
   }
   if (unsubscribeIdleArm !== null) {
     unsubscribeIdleArm();
@@ -631,6 +678,26 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
             void get().pauseSession('overloaded');
             return;
           }
+          // F2 (K-6): backend tagged the failure as a non-recoverable, the
+          // pipeline cannot continue. Map each kind to a distinct pause
+          // reason so the reducer surfaces the right banner. All branches
+          // here are "stop and let the user retry" — silent fall-through to
+          // listening would leave the user staring at a non-responsive UI.
+          if (msg.kind === 'tts_dead') {
+            console.log('[PAUSE] tts_dead', { message: msg.message });
+            void get().pauseSession('tts_failed');
+            return;
+          }
+          if (msg.kind === 'timeout') {
+            console.log('[PAUSE] backend_timeout', { message: msg.message });
+            void get().pauseSession('backend_timeout');
+            return;
+          }
+          if (msg.kind === 'persistence') {
+            console.log('[PAUSE] persistence', { message: msg.message });
+            void get().pauseSession('persistence_failed');
+            return;
+          }
           if (replayTimer !== null) {
             clearTimeout(replayTimer);
           }
@@ -761,24 +828,84 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
     });
     mic = newMic;
 
-    // Idle-timer subscription: re-arms on every mode change. Replaces the
-    // useEffect at the previous ConversationView:606-624. Guard `state.mode
-    // === prev.mode` skips frame-level RMS updates so the timer isn't
-    // continuously reset 50x/sec during listening. The 10s value is
-    // intentional TEMP per plan — production tuning is a separate phase.
+    // Mode-arming subscription: re-arms idle timer + F4/F5 hang watchdogs on
+    // every mode change. Guard `state.mode === prev.mode` skips frame-level
+    // RMS updates so the timer isn't continuously reset 50x/sec during
+    // listening. All three timers are reset together on every mode change
+    // — single subscription, single chokepoint.
+    //
+    // Race-free design: clearTimeout + setTimeout are both synchronous; the
+    // mode-check guard inside each callback (`if (modeRef !== '<mode>')
+    // return;`) protects against a fired callback acting on a stale mode
+    // when the callback was scheduled before the mode change but ran after
+    // the clearTimeout (browser timer cancellation is not retroactive for
+    // already-queued callbacks).
     unsubscribeIdleArm = useConversationStore.subscribe((state, prev) => {
       if (state.mode === prev.mode) return;
+
+      // Clear all three timers on every mode transition; the next block
+      // re-arms whichever ones apply to the new mode.
       if (idleTimer !== null) {
         clearTimeout(idleTimer);
         idleTimer = null;
       }
-      if (state.mode !== 'listening') return;
-      idleTimer = setTimeout(() => {
-        idleTimer = null;
-        if (modeRef !== 'listening') return;
-        console.log('[PAUSE] idle_timer_fired');
-        void useConversationStore.getState().pauseSession('idle_timeout');
-      }, 60_000);
+      if (processingHangTimer !== null) {
+        clearTimeout(processingHangTimer);
+        processingHangTimer = null;
+      }
+      if (assistantSpeakingHangTimer !== null) {
+        clearTimeout(assistantSpeakingHangTimer);
+        assistantSpeakingHangTimer = null;
+      }
+
+      // Idle timer: only in `listening` mode (60 s of no VAD speech-start).
+      if (state.mode === 'listening') {
+        idleTimer = setTimeout(() => {
+          idleTimer = null;
+          if (modeRef !== 'listening') return;
+          console.log('[PAUSE] idle_timer_fired');
+          void useConversationStore.getState().pauseSession('idle_timeout');
+        }, 60_000);
+        return;
+      }
+
+      // F4 (K-6): backend pipeline hang in `processing` mode. Mode enters
+      // here after final_transcript; backend then runs STT(complete)+LLM1
+      // +RL+LLM2-first-chunk and must emit `tts_chunk_start` within ~5–8 s
+      // on a healthy path. 30 s is the catch-all hang threshold: covers
+      // MongoDB stalls in tool dispatch (Motor default socket timeout is
+      // also ~30 s), LLM1 retry-budget exhaustion (~31.5 s), and provider
+      // deadlocks. Backend bounded paths (LLM2 20 s watchdog, LLM1 retry)
+      // should always fire BEFORE us; this timer is the safety net for
+      // gaps we don't know about.
+      if (state.mode === 'processing') {
+        processingHangTimer = setTimeout(() => {
+          processingHangTimer = null;
+          if (modeRef !== 'processing') return;
+          console.log('[PAUSE] processing_hang_30s');
+          void useConversationStore.getState().pauseSession('backend_no_response');
+        }, 30_000);
+        return;
+      }
+
+      // F5 (K-6): TTS playback hang in `assistant-speaking` mode. Mode
+      // enters here on `tts_chunk_start` arrival; client is in "audio
+      // incoming" state. If 45 s pass without `tts_end`, `turn_complete`,
+      // or `playback.onEnded` (which would transition mode away from
+      // assistant-speaking), something is stuck. 45 s is intentionally
+      // generous — a healthy long response (~200 chars) plays in ~12–15 s;
+      // 45 s only fires if backend stopped streaming PCM AND failed to
+      // emit a terminator (so the F2/F1 backend path didn't fire either).
+      // This is the last-resort safety net.
+      if (state.mode === 'assistant-speaking') {
+        assistantSpeakingHangTimer = setTimeout(() => {
+          assistantSpeakingHangTimer = null;
+          if (modeRef !== 'assistant-speaking') return;
+          console.log('[PAUSE] assistant_speaking_hang_45s');
+          void useConversationStore.getState().pauseSession('tts_failed');
+        }, 45_000);
+        return;
+      }
     });
 
     // Lifecycle subscription: attach OS/browser listeners on entry to an

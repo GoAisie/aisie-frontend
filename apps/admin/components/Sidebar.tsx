@@ -16,9 +16,10 @@ const NAV_ITEMS: Array<{
 }> = [
   { href: '/dashboard', label: 'Özet', Icon: IconDashboard },
   { href: '/reports', label: 'Raporlar', Icon: IconReports },
-  { href: '/customers', label: 'Müşteriler', Icon: IconCustomers },
   { href: '/templates', label: 'Şablonlar', Icon: IconTemplates },
+  { href: '/customers', label: 'Müşteriler', Icon: IconCustomers },
   { href: '/users', label: 'Kullanıcılar', Icon: IconUsers },
+  { href: '/conversations', label: 'Konuşma Geçmişleri', Icon: IconConversations },
   { href: '/companies', label: 'Şirketler', Icon: IconCompanies, superAdminOnly: true },
 ];
 
@@ -186,6 +187,13 @@ function IconUsers({ active }: { active: boolean }) {
       <circle cx="9" cy="7" r="4" />
       <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
       <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+  );
+}
+function IconConversations({ active }: { active: boolean }) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={active ? '#7c3aed' : '#6b6b74'} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
     </svg>
   );
 }
