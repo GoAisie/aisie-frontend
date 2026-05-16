@@ -1,6 +1,6 @@
 import { wsServerMessageSchema, type WsServerMessage } from '@aisie/shared';
 import { env } from '@/lib/env';
-import { getAccessToken } from '@/lib/auth/session-store';
+import { ensureValidAccessToken } from '@/lib/api-client';
 import type {
   ConnectionState,
   ConversationClient,
@@ -44,7 +44,14 @@ export class RealConversationClient implements ConversationClient {
     if (this.ws) return;
     this.opts.onState('connecting');
 
-    const token = getAccessToken();
+    // Proactive refresh: the WS open URL carries the access token as a query
+    // parameter and the gateway validates it once at handshake. If the token
+    // expires mid-pause, resume otherwise fails with `close 1008` (no recovery
+    // hook inside the WebSocket API). ensureValidAccessToken refreshes when
+    // the token is within 60 s of exp, so a resume after a long pause always
+    // opens with a fresh token. Returns null when the refresh token itself is
+    // invalid — that case really does need a re-login.
+    const token = await ensureValidAccessToken();
     if (!token) {
       this.opts.onState('error');
       throw new Error('Oturum bilgisi bulunamadı, lütfen tekrar giriş yapın.');

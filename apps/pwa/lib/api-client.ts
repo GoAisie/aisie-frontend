@@ -54,6 +54,50 @@ async function tryRefreshAccessToken(): Promise<boolean> {
   return refreshInFlight;
 }
 
+// Decode the `exp` claim from a JWT access token. Returns Unix seconds, or
+// null on malformed / missing claim. Cheap (no signature verification — the
+// gateway re-verifies on every request) and fully client-side.
+function getJwtExpiry(token: string): number | null {
+  try {
+    const payload = JSON.parse(
+      atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')),
+    );
+    return typeof payload.exp === 'number' ? payload.exp : null;
+  } catch {
+    return null;
+  }
+}
+
+// Refresh proactively if the token expires within this window. 60 s covers
+// ALB/network jitter + small JWT clock-skew tolerance. Wide enough that a
+// "valid at connect, expired at first message" race never burns a turn,
+// narrow enough that we don't churn refresh calls.
+const TOKEN_REFRESH_BUFFER_SEC = 60;
+
+// Returns a fresh-enough access token, refreshing on demand. Used by paths
+// that can't ride the apiFetch 401-retry loop — specifically the WS connect
+// path, where token expiry surfaces as `close 1008` (no HTTP status, no
+// recovery hook inside the WebSocket API). Decoding the exp claim client-side
+// is safe: the gateway re-verifies on every connect, so this is only a
+// hint to know when to refresh.
+//
+// Returns null when: no access token AND refresh failed, OR refresh token
+// itself is invalid. Callers treat null as a hard "user must re-login".
+export async function ensureValidAccessToken(): Promise<string | null> {
+  const current = getAccessToken();
+  if (!current) {
+    const ok = await tryRefreshAccessToken();
+    return ok ? getAccessToken() : null;
+  }
+  const exp = getJwtExpiry(current);
+  const now = Math.floor(Date.now() / 1000);
+  if (exp === null || exp - now <= TOKEN_REFRESH_BUFFER_SEC) {
+    const ok = await tryRefreshAccessToken();
+    return ok ? getAccessToken() : null;
+  }
+  return current;
+}
+
 // Single JSON fetch wrapper. Injects Authorization from the Zustand store,
 // serialises JSON bodies, and throws ApiError on non-2xx. On 401, tries a
 // silent refresh first; only clears the session if refresh also fails. This
