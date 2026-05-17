@@ -1,27 +1,26 @@
 {
   "name": "Aisie",
   "short_name": "Aisie",
-  "description": "Sesli CRM asistanı",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#ffffff",
+  "background_color": "#0d0a1f",
   "theme_color": "#7c3aed",
   "lang": "tr-TR",
   "dir": "ltr",
   "categories": ["business", "productivity"],
   "icons": [
     {
-      "src": "/icons/icon.svg",
+      "src": "/icons/aisie-logo.png",
       "sizes": "any",
-      "type": "image/svg+xml",
+      "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icons/icon-maskable.svg",
+      "src": "/icons/aisie-logo.png",
       "sizes": "any",
-      "type": "image/svg+xml",
+      "type": "image/png",
       "purpose": "maskable"
     }
   ]

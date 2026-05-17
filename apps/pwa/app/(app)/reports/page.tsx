@@ -3,9 +3,27 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
+import { Trash2 } from 'lucide-react';
 import { apiFetch } from '@/lib/api-client';
-import type { Report, ReportStatus } from '@aisie/shared';
 import { formatDateTime } from '@/lib/format';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { EmptyState } from '@/components/ui/empty-state';
+import { FilterChip } from '@/components/ui/filter-chip';
+import { Input } from '@/components/ui/input';
+import { PageHeader } from '@/components/ui/page-header';
+import {
+  StatusBadge,
+  type ReportStatus,
+} from '@/components/ui/status-badge';
+import type { Report } from '@aisie/shared';
 
 // SALES_REPs see their own reports here, including in-progress rows. The
 // "Sil" action is only offered on `status="in-progress"` rows: completed
@@ -29,7 +47,11 @@ export default function ReportsPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [dateFilter, setDateFilter] = useState<string>(''); // YYYY-MM-DD; empty = no date filter
 
-  const { data: reports = [], isLoading, isError } = useQuery({
+  const {
+    data: reports = [],
+    isLoading,
+    isError,
+  } = useQuery({
     queryKey: ['reports'],
     queryFn: () => apiFetch<Report[]>('/api/v1/reports?limit=50'),
   });
@@ -48,13 +70,15 @@ export default function ReportsPage() {
       }
       if (!q) return true;
       const customerName =
-        typeof r.data?.['customer_name'] === 'string' ? r.data['customer_name'] : '';
+        typeof r.data?.['customer_name'] === 'string'
+          ? r.data['customer_name']
+          : '';
       const haystack = [
         customerName,
         r.subject_customer_name ?? '',
         r.template_name,
         ...Object.values(r.data ?? {}).map((v) =>
-          v === null || v === undefined ? '' : String(v)
+          v === null || v === undefined ? '' : String(v),
         ),
       ]
         .join(' \u0001 ')
@@ -63,11 +87,14 @@ export default function ReportsPage() {
     });
   }, [reports, search, statusFilter, dateFilter]);
 
-  const isFiltered = statusFilter !== 'all' || dateFilter !== '' || search.trim() !== '';
+  const isFiltered =
+    statusFilter !== 'all' || dateFilter !== '' || search.trim() !== '';
 
   const softDelete = useMutation({
     mutationFn: (id: string) =>
-      apiFetch<{ ok: true }>(`/api/v1/reports/${id}/soft-delete`, { method: 'POST' }),
+      apiFetch<{ ok: true }>(`/api/v1/reports/${id}/soft-delete`, {
+        method: 'POST',
+      }),
     onSuccess: () => {
       setPendingDelete(null);
       setDeleteError(null);
@@ -78,99 +105,110 @@ export default function ReportsPage() {
   });
 
   return (
-    <section style={{ padding: '24px 16px 8px' }}>
-      <header style={{ marginBottom: 12 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Raporlar</h1>
-        <p style={{ margin: '4px 0 0', color: '#6b6b74', fontSize: 13 }}>
-          {isLoading ? 'Yükleniyor…' : `${filteredReports.length} / ${reports.length} rapor`}
-        </p>
-      </header>
-
-      <input
-        type="search"
-        placeholder="Ara..."
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        style={searchStyle}
+    <section className="px-4 pt-15 pb-2">
+      <PageHeader
+        title="Raporlar"
+        subtitle={
+          isLoading
+            ? 'Yükleniyor…'
+            : `${filteredReports.length} / ${reports.length} rapor`
+        }
       />
 
-      {/* Filter bar: status pills + date input. Two rows on narrow screens
-          via flex-wrap so the pills don't shrink below their text width. */}
-      <div style={filterBarStyle}>
-        <div style={{ display: 'flex', gap: 6 }}>
-          <button
-            type="button"
-            onClick={() => setStatusFilter('all')}
-            style={pillStyle(statusFilter === 'all')}
-            aria-pressed={statusFilter === 'all'}
-          >
-            Tümü
-          </button>
-          <button
-            type="button"
-            onClick={() => setStatusFilter('in-progress')}
-            style={pillStyle(statusFilter === 'in-progress')}
-            aria-pressed={statusFilter === 'in-progress'}
-          >
-            Devam ediyor
-          </button>
-        </div>
+      <Input
+        type="search"
+        placeholder="Ara…"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        className="mb-2.5"
+      />
+
+      {/* Filter bar — flex-wrap keeps pills tight on narrow screens. */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <FilterChip
+          label="Tümü"
+          active={statusFilter === 'all'}
+          onClick={() => setStatusFilter('all')}
+        />
+        <FilterChip
+          label="Devam ediyor"
+          active={statusFilter === 'in-progress'}
+          onClick={() => setStatusFilter('in-progress')}
+        />
         <input
           type="date"
           value={dateFilter}
           onChange={(e) => setDateFilter(e.target.value)}
           aria-label="Tarih filtresi"
-          style={dateInputStyle}
+          className="rounded-xl border border-border bg-card px-3 py-1.5 text-[13px] text-foreground transition-colors hover:bg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
         {isFiltered && (
-          <button
-            type="button"
-            onClick={() => { setStatusFilter('all'); setDateFilter(''); setSearch(''); }}
-            style={clearFilterBtnStyle}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setStatusFilter('all');
+              setDateFilter('');
+              setSearch('');
+            }}
+            className="text-brand-600 hover:text-brand-700"
           >
             Temizle
-          </button>
+          </Button>
         )}
       </div>
 
       {isError && (
-        <p style={{ color: '#dc2626', fontSize: 14 }}>Raporlar yüklenemedi.</p>
+        <p className="m-0 text-[14px] text-destructive">
+          Raporlar yüklenemedi.
+        </p>
       )}
 
-      {!isLoading && reports.length > 0 && filteredReports.length === 0 && (
-        <p style={{ color: '#6b6b74', fontSize: 14 }}>Filtreyle eşleşen rapor yok.</p>
+      {!isLoading && reports.length === 0 && (
+        <EmptyState message="Henüz rapor yok." />
       )}
 
-      <ul style={listStyle}>
+      {!isLoading &&
+        reports.length > 0 &&
+        filteredReports.length === 0 && (
+          <p className="m-0 text-[14px] text-muted-foreground">
+            Filtreyle eşleşen rapor yok.
+          </p>
+        )}
+
+      <ul className="m-0 flex list-none flex-col gap-2 p-0">
         {filteredReports.map((r) => {
-          // customer_name is the conventional field name set by entity_type:"customer"
-          // templates; fall back to template_name if the field is absent or not a string.
+          // customer_name is the conventional field name set by
+          // entity_type:"customer" templates; fall back to template_name
+          // when absent or not a string.
           const customerName =
-            typeof r.data?.['customer_name'] === 'string' ? r.data['customer_name'] : null;
+            typeof r.data?.['customer_name'] === 'string'
+              ? r.data['customer_name']
+              : null;
           const displayName = customerName ?? r.template_name;
+          // Defensive coerce — backend may emit legacy statuses we don't
+          // surface; treat anything non-completed as in-progress.
+          const badgeStatus: ReportStatus =
+            r.status === 'completed' ? 'completed' : 'in-progress';
           return (
-            <li key={r.report_id} style={{ listStyle: 'none' }}>
-              <div style={cardStyle}>
-                <Link href={`/reports/${r.report_id}`} style={cardLinkStyle}>
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'baseline',
-                      gap: 12,
-                    }}
-                  >
-                    <strong style={{ fontSize: 15, color: '#0b0b0f' }}>
+            <li key={r.report_id} className="list-none">
+              <div className="flex overflow-hidden rounded-xl border border-border/40 bg-gradient-to-br from-brand-200/70 to-brand-100/40 transition-all hover:from-brand-300/70 hover:to-brand-200/50 dark:from-brand-800/60 dark:to-brand-900/40 dark:hover:from-brand-700/70 dark:hover:to-brand-800/50">
+                <Link
+                  href={`/reports/${r.report_id}`}
+                  className="block min-w-0 flex-1 px-3.5 py-3 text-foreground no-underline active:scale-[0.995]"
+                >
+                  <div className="flex items-baseline justify-between gap-3">
+                    <strong className="text-[15px] font-semibold leading-tight text-foreground">
                       {displayName}
                     </strong>
-                    <StatusBadge status={r.status} />
+                    <StatusBadge status={badgeStatus} />
                   </div>
                   {customerName && (
-                    <p style={{ margin: '4px 0 0', color: '#6b6b74', fontSize: 13 }}>
+                    <p className="m-0 mt-1 text-[13px] text-muted-foreground">
                       {r.template_name}
                     </p>
                   )}
-                  <p style={{ margin: '4px 0 0', color: '#9ca3af', fontSize: 12 }}>
+                  <p className="m-0 mt-1 text-[12px] text-muted-foreground/80">
                     {formatDateTime(r.created_at)}
                   </p>
                 </Link>
@@ -182,8 +220,9 @@ export default function ReportsPage() {
                       setDeleteError(null);
                     }}
                     aria-label={`${displayName} raporunu sil`}
-                    style={deleteBtnStyle}
+                    className="flex items-center gap-1.5 border-l border-border px-4 text-[12px] font-semibold text-destructive transition-colors hover:bg-destructive/10 active:scale-95"
                   >
+                    <Trash2 className="size-4" aria-hidden />
                     Sil
                   </button>
                 )}
@@ -193,229 +232,53 @@ export default function ReportsPage() {
         })}
       </ul>
 
-      {pendingDelete && (
-        <ConfirmModal
-          title={`"${pendingDelete.displayName}" raporunu sil`}
-          body="Bu rapor liste görünümünden gizlenecek. Devam edilsin mi?"
-          confirmLabel={softDelete.isPending ? 'Siliniyor…' : 'Sil'}
-          confirmDisabled={softDelete.isPending}
-          onCancel={() => {
+      <Dialog
+        open={!!pendingDelete}
+        onOpenChange={(open) => {
+          if (!open) {
             setPendingDelete(null);
             setDeleteError(null);
-          }}
-          onConfirm={() => softDelete.mutate(pendingDelete.id)}
-          error={deleteError}
-        />
-      )}
+          }
+        }}
+      >
+        <DialogContent>
+          {pendingDelete && (
+            <>
+              <DialogHeader>
+                <DialogTitle>
+                  "{pendingDelete.displayName}" raporunu sil
+                </DialogTitle>
+                <DialogDescription>
+                  Bu rapor liste görünümünden gizlenecek. Devam edilsin mi?
+                </DialogDescription>
+              </DialogHeader>
+              {deleteError && (
+                <p className="m-0 text-[13px] text-destructive">
+                  {deleteError}
+                </p>
+              )}
+              <DialogFooter>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setPendingDelete(null);
+                    setDeleteError(null);
+                  }}
+                >
+                  Vazgeç
+                </Button>
+                <Button
+                  variant="destructive"
+                  disabled={softDelete.isPending}
+                  onClick={() => softDelete.mutate(pendingDelete.id)}
+                >
+                  {softDelete.isPending ? 'Siliniyor…' : 'Sil'}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }
-
-const STATUS_LABELS: Record<ReportStatus, string> = {
-  'in-progress': 'Devam ediyor',
-  completed: 'Tamamlandı',
-};
-
-const STATUS_STYLE: Record<ReportStatus, { color: string; background: string }> = {
-  'in-progress': { color: '#92400e', background: '#fef3c7' },
-  completed: { color: '#065f46', background: '#d1fae5' },
-};
-
-function StatusBadge({ status }: { status: ReportStatus }) {
-  const style = STATUS_STYLE[status] ?? { color: '#374151', background: '#f3f4f6' };
-  return (
-    <span
-      style={{
-        fontSize: 11,
-        fontWeight: 600,
-        padding: '2px 8px',
-        borderRadius: 999,
-        whiteSpace: 'nowrap',
-        ...style,
-      }}
-    >
-      {STATUS_LABELS[status] ?? status}
-    </span>
-  );
-}
-
-function ConfirmModal({
-  title,
-  body,
-  confirmLabel,
-  confirmDisabled,
-  onCancel,
-  onConfirm,
-  error,
-}: {
-  title: string;
-  body: string;
-  confirmLabel: string;
-  confirmDisabled: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
-  error: string | null;
-}) {
-  return (
-    <div onClick={onCancel} style={modalOverlayStyle}>
-      <div
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        style={modalCardStyle}
-      >
-        <h3 style={{ margin: '0 0 8px', fontSize: 16, fontWeight: 700, color: '#0b0b0f' }}>
-          {title}
-        </h3>
-        <p style={{ margin: '0 0 14px', fontSize: 13, color: '#4b5563', lineHeight: 1.45 }}>
-          {body}
-        </p>
-        {error && (
-          <p style={{ margin: '0 0 10px', fontSize: 13, color: '#dc2626' }}>{error}</p>
-        )}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <button type="button" onClick={onCancel} style={ghostBtnStyle}>
-            Vazgeç
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            disabled={confirmDisabled}
-            style={{ ...dangerBtnStyle, padding: '8px 16px', opacity: confirmDisabled ? 0.6 : 1 }}
-          >
-            {confirmLabel}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-const listStyle: React.CSSProperties = {
-  padding: 0,
-  margin: 0,
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 8,
-};
-
-const searchStyle: React.CSSProperties = {
-  width: '100%',
-  padding: '10px 12px',
-  borderRadius: 10,
-  border: '1px solid #e5e7eb',
-  fontSize: 14,
-  marginBottom: 10,
-  boxSizing: 'border-box',
-};
-
-const filterBarStyle: React.CSSProperties = {
-  display: 'flex',
-  flexWrap: 'wrap',
-  alignItems: 'center',
-  gap: 8,
-  marginBottom: 12,
-};
-
-const dateInputStyle: React.CSSProperties = {
-  padding: '7px 10px',
-  borderRadius: 10,
-  border: '1px solid #e5e7eb',
-  fontSize: 13,
-  background: '#fff',
-  color: '#0b0b0f',
-};
-
-const clearFilterBtnStyle: React.CSSProperties = {
-  background: 'transparent',
-  color: '#7c3aed',
-  border: 'none',
-  fontSize: 12,
-  fontWeight: 600,
-  padding: '6px 8px',
-  cursor: 'pointer',
-};
-
-function pillStyle(active: boolean): React.CSSProperties {
-  return {
-    padding: '7px 14px',
-    borderRadius: 999,
-    border: '1px solid ' + (active ? '#7c3aed' : '#e5e7eb'),
-    background: active ? '#7c3aed' : '#fff',
-    color: active ? '#fff' : '#374151',
-    fontSize: 13,
-    fontWeight: active ? 600 : 500,
-    cursor: 'pointer',
-    whiteSpace: 'nowrap',
-  };
-}
-
-const cardStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'stretch',
-  background: '#fff',
-  border: '1px solid #e5e7eb',
-  borderRadius: 12,
-  overflow: 'hidden',
-};
-
-const cardLinkStyle: React.CSSProperties = {
-  display: 'block',
-  padding: '12px 14px',
-  flex: 1,
-  minWidth: 0,
-  textDecoration: 'none',
-  color: 'inherit',
-};
-
-const deleteBtnStyle: React.CSSProperties = {
-  background: 'transparent',
-  color: '#dc2626',
-  border: 'none',
-  borderLeft: '1px solid #f1f5f9',
-  padding: '0 16px',
-  fontSize: 12,
-  fontWeight: 600,
-  cursor: 'pointer',
-  whiteSpace: 'nowrap',
-};
-
-const dangerBtnStyle: React.CSSProperties = {
-  background: '#fff',
-  color: '#dc2626',
-  border: '1px solid #fecaca',
-  borderRadius: 6,
-  padding: '6px 10px',
-  fontSize: 12,
-  fontWeight: 600,
-  cursor: 'pointer',
-};
-
-const ghostBtnStyle: React.CSSProperties = {
-  background: 'transparent',
-  color: '#6b6b74',
-  border: 'none',
-  padding: '8px 12px',
-  fontSize: 13,
-  cursor: 'pointer',
-};
-
-const modalOverlayStyle: React.CSSProperties = {
-  position: 'fixed',
-  inset: 0,
-  zIndex: 50,
-  background: 'rgba(15,16,25,0.45)',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  padding: 20,
-};
-
-const modalCardStyle: React.CSSProperties = {
-  background: '#fff',
-  borderRadius: 12,
-  padding: 20,
-  maxWidth: 420,
-  width: '100%',
-  boxShadow: '0 18px 40px rgba(0,0,0,0.25)',
-};

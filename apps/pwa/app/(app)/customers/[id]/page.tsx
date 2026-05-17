@@ -4,8 +4,19 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { useParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ArrowLeft, Pencil } from 'lucide-react';
 import { apiFetch } from '@/lib/api-client';
 import { useSessionStore } from '@/lib/auth/session-store';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { cn } from '@/lib/utils';
 
 // SALES_REP-side detail view of a single CustomerContact. Read-mostly with
 // an inline "Düzenle" affordance so a rep can fix typos / add a missing
@@ -34,13 +45,24 @@ export default function CustomerDetailPage() {
   const queryClient = useQueryClient();
 
   const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState<FormState>({ name: '', phone_number: '', email: '', notes: '' });
+  const [form, setForm] = useState<FormState>({
+    name: '',
+    phone_number: '',
+    email: '',
+    notes: '',
+  });
   const [opError, setOpError] = useState<string | null>(null);
 
-  const { data: customers = [], isLoading, isError } = useQuery({
+  const {
+    data: customers = [],
+    isLoading,
+    isError,
+  } = useQuery({
     queryKey: ['customers', companyId],
     queryFn: () =>
-      apiFetch<CustomerContact[]>(`/api/v1/manage/companies/${companyId}/customers`),
+      apiFetch<CustomerContact[]>(
+        `/api/v1/manage/companies/${companyId}/customers`,
+      ),
     enabled: !!companyId,
   });
 
@@ -60,7 +82,7 @@ export default function CustomerDetailPage() {
             email: input.email.trim() || null,
             notes: input.notes.trim() || null,
           },
-        }
+        },
       ),
     onSuccess: () => {
       setEditing(false);
@@ -68,32 +90,40 @@ export default function CustomerDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['customers', companyId] });
     },
     onError: (err) =>
-      setOpError(err instanceof Error ? err.message : 'Müşteri güncellenemedi.'),
+      setOpError(
+        err instanceof Error ? err.message : 'Müşteri güncellenemedi.',
+      ),
   });
 
   if (isLoading) {
     return (
-      <section style={pageStyle}>
-        <Link href="/customers" style={backLinkStyle}>← Müşteriler</Link>
-        <p style={{ color: '#6b6b74', fontSize: 14, marginTop: 12 }}>Yükleniyor…</p>
+      <section className="px-4 pt-15 pb-2">
+        <BackLink />
+        <p className="m-0 mt-3 text-[14px] text-muted-foreground">
+          Yükleniyor…
+        </p>
       </section>
     );
   }
 
   if (isError) {
     return (
-      <section style={pageStyle}>
-        <Link href="/customers" style={backLinkStyle}>← Müşteriler</Link>
-        <p style={{ color: '#dc2626', fontSize: 14, marginTop: 12 }}>Müşteri bilgisi yüklenemedi.</p>
+      <section className="px-4 pt-15 pb-2">
+        <BackLink />
+        <p className="m-0 mt-3 text-[14px] text-destructive">
+          Müşteri bilgisi yüklenemedi.
+        </p>
       </section>
     );
   }
 
   if (!customer) {
     return (
-      <section style={pageStyle}>
-        <Link href="/customers" style={backLinkStyle}>← Müşteriler</Link>
-        <p style={{ color: '#dc2626', fontSize: 14, marginTop: 12 }}>Müşteri bulunamadı.</p>
+      <section className="px-4 pt-15 pb-2">
+        <BackLink />
+        <p className="m-0 mt-3 text-[14px] text-destructive">
+          Müşteri bulunamadı.
+        </p>
       </section>
     );
   }
@@ -109,16 +139,24 @@ export default function CustomerDetailPage() {
     setEditing(true);
   };
 
-  return (
-    <section style={pageStyle}>
-      <Link href="/customers" style={backLinkStyle}>← Müşteriler</Link>
+  const editDisabled =
+    editCustomer.isPending || form.name.trim().length === 0;
 
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginTop: 8 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>{customer.name}</h1>
-        <button type="button" onClick={openEdit} style={primaryBtnStyle}>Düzenle</button>
+  return (
+    <section className="px-4 pt-15 pb-2">
+      <BackLink />
+
+      <header className="mt-3 flex flex-wrap items-start justify-between gap-3">
+        <h1 className="m-0 text-[22px] font-bold tracking-tight text-foreground">
+          {customer.name}
+        </h1>
+        <Button type="button" size="sm" onClick={openEdit}>
+          <Pencil className="size-3.5" aria-hidden />
+          Düzenle
+        </Button>
       </header>
 
-      <dl style={{ marginTop: 20, padding: 0 }}>
+      <dl className="m-0 mt-5 p-0">
         {customer.phone_number && (
           <Field
             label="Telefon"
@@ -134,118 +172,164 @@ export default function CustomerDetailPage() {
           />
         )}
         {customer.notes && (
-          <div style={{ padding: '12px 0', borderBottom: '1px solid #f1f5f9' }}>
-            <p style={{ margin: 0, color: '#6b6b74', fontSize: 13 }}>Notlar</p>
-            <p style={{ margin: '6px 0 0', fontSize: 14, color: '#0b0b0f', whiteSpace: 'pre-wrap' }}>
+          <div className="border-b border-border py-3">
+            <p className="m-0 text-[13px] text-muted-foreground">Notlar</p>
+            <p className="m-0 mt-1.5 whitespace-pre-wrap text-[14px] text-foreground">
               {customer.notes}
             </p>
           </div>
         )}
         {!customer.phone_number && !customer.email && !customer.notes && (
-          <p style={{ color: '#6b6b74', fontSize: 14 }}>İletişim bilgisi bulunmuyor.</p>
+          <p className="m-0 text-[14px] text-muted-foreground">
+            İletişim bilgisi bulunmuyor.
+          </p>
         )}
       </dl>
 
-      {editing && (
-        <EditModal
-          value={form}
-          onChange={setForm}
-          onCancel={() => { setEditing(false); setOpError(null); }}
-          onSubmit={() => editCustomer.mutate(form)}
-          isPending={editCustomer.isPending}
-          error={opError}
-        />
-      )}
+      <Dialog
+        open={editing}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditing(false);
+            setOpError(null);
+          }
+        }}
+      >
+        <DialogContent>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!editDisabled) editCustomer.mutate(form);
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>Müşteriyi Düzenle</DialogTitle>
+            </DialogHeader>
+
+            <div className="mt-4 flex flex-col gap-3">
+              <FormField label="Ad" required>
+                <Input
+                  type="text"
+                  required
+                  autoFocus
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                />
+              </FormField>
+              <FormField label="Telefon">
+                <Input
+                  type="tel"
+                  value={form.phone_number}
+                  onChange={(e) =>
+                    setForm({ ...form, phone_number: e.target.value })
+                  }
+                />
+              </FormField>
+              <FormField label="E-posta">
+                <Input
+                  type="email"
+                  value={form.email}
+                  onChange={(e) => setForm({ ...form, email: e.target.value })}
+                />
+              </FormField>
+              <FormField label="Notlar">
+                <textarea
+                  rows={3}
+                  value={form.notes}
+                  onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                  className={cn(
+                    'w-full rounded-md border border-input bg-card px-3 py-2 text-[14px] text-foreground transition-colors',
+                    'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                    'resize-y font-sans',
+                  )}
+                />
+              </FormField>
+            </div>
+
+            {opError && (
+              <p className="mt-2 text-[13px] text-destructive">{opError}</p>
+            )}
+
+            <DialogFooter className="mt-4">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  setEditing(false);
+                  setOpError(null);
+                }}
+              >
+                Vazgeç
+              </Button>
+              <Button type="submit" disabled={editDisabled}>
+                {editCustomer.isPending ? 'Kaydediliyor…' : 'Kaydet'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }
 
-function EditModal({
-  value, onChange, onCancel, onSubmit, isPending, error,
-}: {
-  value: FormState;
-  onChange: (v: FormState) => void;
-  onCancel: () => void;
-  onSubmit: () => void;
-  isPending: boolean;
-  error: string | null;
-}) {
-  const disabled = isPending || value.name.trim().length === 0;
+function BackLink() {
+  // Back link rendered as a bordered Button (outline variant) so it reads
+  // as a tappable target rather than a hyperlink — matches the visual
+  // weight of "Düzenle" / "+ Yeni" etc. action buttons. asChild lets
+  // Button apply its styling to the inner <Link> without nesting elements.
   return (
-    <div onClick={onCancel} style={modalOverlayStyle}>
-      <form
-        onClick={(e) => e.stopPropagation()}
-        onSubmit={(e) => { e.preventDefault(); if (!disabled) onSubmit(); }}
-        role="dialog"
-        aria-modal="true"
-        style={modalCardStyle}
-      >
-        <h3 style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 700 }}>Müşteriyi Düzenle</h3>
-
-        <Label text="Ad *">
-          <input
-            type="text"
-            required
-            autoFocus
-            value={value.name}
-            onChange={(e) => onChange({ ...value, name: e.target.value })}
-            style={inputStyle}
-          />
-        </Label>
-        <Label text="Telefon">
-          <input
-            type="tel"
-            value={value.phone_number}
-            onChange={(e) => onChange({ ...value, phone_number: e.target.value })}
-            style={inputStyle}
-          />
-        </Label>
-        <Label text="E-posta">
-          <input
-            type="email"
-            value={value.email}
-            onChange={(e) => onChange({ ...value, email: e.target.value })}
-            style={inputStyle}
-          />
-        </Label>
-        <Label text="Notlar">
-          <textarea
-            rows={3}
-            value={value.notes}
-            onChange={(e) => onChange({ ...value, notes: e.target.value })}
-            style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit' }}
-          />
-        </Label>
-
-        {error && <p style={{ margin: '4px 0 8px', fontSize: 13, color: '#dc2626' }}>{error}</p>}
-
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
-          <button type="button" onClick={onCancel} style={ghostBtnStyle}>Vazgeç</button>
-          <button type="submit" disabled={disabled} style={{ ...primaryBtnStyle, opacity: disabled ? 0.6 : 1 }}>
-            {isPending ? 'Kaydediliyor…' : 'Kaydet'}
-          </button>
-        </div>
-      </form>
-    </div>
+    <Button
+      asChild
+      variant="outline"
+      size="sm"
+      className="gap-1.5 text-brand-700 hover:text-brand-800 dark:text-brand-200 dark:hover:text-brand-100"
+    >
+      <Link href="/customers">
+        <ArrowLeft className="size-3.5" aria-hidden />
+        Müşteriler
+      </Link>
+    </Button>
   );
 }
 
-function Label({ text, children }: { text: string; children: React.ReactNode }) {
+function FormField({
+  label,
+  required,
+  children,
+}: {
+  label: string;
+  required?: boolean;
+  children: React.ReactNode;
+}) {
   return (
-    <label style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 10 }}>
-      <span style={{ fontSize: 13, color: '#6b6b74' }}>{text}</span>
+    <label className="flex flex-col gap-1.5">
+      <span className="text-[13px] font-medium text-muted-foreground">
+        {label}
+        {required && <span className="text-destructive"> *</span>}
+      </span>
       {children}
     </label>
   );
 }
 
-function Field({ label, value, href }: { label: string; value: string; href?: string }) {
+function Field({
+  label,
+  value,
+  href,
+}: {
+  label: string;
+  value: string;
+  href?: string;
+}) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '10px 0', borderBottom: '1px solid #f1f5f9' }}>
-      <dt style={{ color: '#6b6b74', fontSize: 13 }}>{label}</dt>
-      <dd style={{ margin: 0, fontSize: 14, color: '#0b0b0f' }}>
+    <div className="flex justify-between gap-3 border-b border-border py-2.5">
+      <dt className="text-[13px] text-muted-foreground">{label}</dt>
+      <dd className="m-0 text-[14px] text-foreground">
         {href ? (
-          <a href={href} style={{ color: '#7c3aed', textDecoration: 'none' }}>
+          <a
+            href={href}
+            className="text-brand-600 no-underline transition-colors hover:text-brand-700"
+          >
             {value}
           </a>
         ) : (
@@ -255,66 +339,3 @@ function Field({ label, value, href }: { label: string; value: string; href?: st
     </div>
   );
 }
-
-const pageStyle: React.CSSProperties = {
-  padding: '24px 16px 8px',
-};
-
-const backLinkStyle: React.CSSProperties = {
-  display: 'inline-block',
-  padding: '6px 0',
-  fontSize: 13,
-  color: '#7c3aed',
-  textDecoration: 'none',
-  fontWeight: 500,
-};
-
-const primaryBtnStyle: React.CSSProperties = {
-  background: '#7c3aed',
-  color: '#fff',
-  border: 'none',
-  borderRadius: 10,
-  padding: '8px 14px',
-  fontSize: 13,
-  fontWeight: 600,
-  cursor: 'pointer',
-};
-
-const ghostBtnStyle: React.CSSProperties = {
-  background: 'transparent',
-  color: '#6b6b74',
-  border: 'none',
-  padding: '8px 12px',
-  fontSize: 13,
-  cursor: 'pointer',
-};
-
-const inputStyle: React.CSSProperties = {
-  border: '1px solid #d4d4d8',
-  borderRadius: 8,
-  padding: '8px 10px',
-  fontSize: 14,
-  outline: 'none',
-  width: '100%',
-  boxSizing: 'border-box',
-};
-
-const modalOverlayStyle: React.CSSProperties = {
-  position: 'fixed',
-  inset: 0,
-  zIndex: 50,
-  background: 'rgba(15,16,25,0.45)',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  padding: 20,
-};
-
-const modalCardStyle: React.CSSProperties = {
-  background: '#fff',
-  borderRadius: 12,
-  padding: 20,
-  maxWidth: 420,
-  width: '100%',
-  boxShadow: '0 18px 40px rgba(0,0,0,0.25)',
-};

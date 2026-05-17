@@ -1,19 +1,22 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
 import { MicButton, type MicButtonMode } from '@/components/MicButton';
 import { env } from '@/lib/env';
+import { cn } from '@/lib/utils';
 import {
   type HistoryEntry,
   useConversationStore,
 } from '@/lib/conversation/conversation-store';
 
 // Presentational shell. All session state, audio resource lifecycle, and WS
-// callback wiring live in `useConversationStore` (lib/conversation/
-// conversation-store.ts). This component subscribes to the slices it needs
-// and dispatches store actions on user interaction. The store is a
-// module-level singleton so WS + mic + playback survive Next.js App Router
-// page transitions (e.g. a user navigating to /reports while listening).
+// callback wiring live in `useConversationStore`. This component subscribes
+// to the slices it needs and dispatches store actions on user interaction.
+// The store is a module-level singleton so WS + mic + playback survive
+// Next.js App Router page transitions.
 export function ConversationView() {
   const mode = useConversationStore((s) => s.mode);
   const rms = useConversationStore((s) => s.rms);
@@ -25,10 +28,8 @@ export function ConversationView() {
 
   const [insecureHost, setInsecureHost] = useState<string | null>(null);
 
-  // Browsers (all of them) refuse getUserMedia on non-secure origins. During
-  // dev this bites anyone hitting the LAN IP instead of localhost, so we
-  // check up front and point the user at the right URL instead of letting
-  // them tap the mic and wonder why nothing happens.
+  // Browsers refuse getUserMedia on non-secure origins. During dev this
+  // bites anyone hitting the LAN IP instead of localhost.
   useEffect(() => {
     if (typeof window === 'undefined') return;
     if (window.isSecureContext) return;
@@ -36,20 +37,20 @@ export function ConversationView() {
   }, []);
 
   const onClick = useCallback(() => {
-    // The single mic button is overloaded with three semantics keyed off
-    // the current mode:
-    //   idle/error           → start a fresh session
-    //   paused               → resume the existing session
-    //   anything else active → pause the current session (NOT end — close is
-    //                          a separate secondary button shown only while paused)
     const store = useConversationStore.getState();
-    // Use resumeSession() for all "start a new attempt" paths — it reads any
-    // paused_id from sessionStorage and uses it as a resume hint, falling
-    // through to a fresh start when the id is absent (idle, post-end). Without
-    // this, recovery from error mode would silently drop paused_id and start
-    // a fresh conversation, breaking history continuity across the
-    // pause → error → retry chain that the M4 close-code routing introduces.
-    if (mode === 'idle' || mode === 'error' || mode === 'paused') {
+    // Single mic button is overloaded with three semantics keyed off mode:
+    //   idle/error → start a fresh session   (HAPTIC — session start)
+    //   paused     → resume the existing session   (no haptic)
+    //   active     → pause the current session   (no haptic)
+    // Haptic only on session-START moments per user feedback — buzz on every
+    // pause/resume click is rattling. Android Chrome/Firefox/Samsung Internet
+    // honour navigator.vibrate; iOS Safari rejects the Vibration API.
+    if (mode === 'idle' || mode === 'error') {
+      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+        navigator.vibrate(15);
+      }
+      void store.resumeSession();
+    } else if (mode === 'paused') {
       void store.resumeSession();
     } else {
       void store.pauseSession('manual');
@@ -57,75 +58,61 @@ export function ConversationView() {
   }, [mode]);
 
   const onClose = useCallback(() => {
+    // HAPTIC — explicit session end is the user committing to "I'm done";
+    // matching feedback to start-session buzz.
+    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+      navigator.vibrate(15);
+    }
     void useConversationStore.getState().endSession();
   }, []);
 
-  const active = mode !== 'idle' && mode !== 'error';
-
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        gap: 18,
-      }}
-    >
+    <div className="flex flex-col items-center gap-4">
       {insecureHost && (
-        <div
+        <Alert
           role="status"
-          style={{
-            maxWidth: 420,
-            padding: '10px 14px',
-            background: '#fef3c7',
-            border: '1px solid #fcd34d',
-            borderRadius: 10,
-            color: '#713f12',
-            fontSize: 13,
-            lineHeight: 1.45,
-          }}
+          className="max-w-[420px] border-[var(--color-warning-border)] bg-[var(--color-warning-bg)] text-[var(--color-warning-foreground)]"
         >
-          <strong>Güvensiz bağlantı.</strong> Tarayıcılar mikrofonu yalnızca
-          <code style={{ margin: '0 4px' }}>https://</code>veya
-          <code style={{ margin: '0 4px' }}>localhost</code>üzerinden açar.
-          <br />
-          Şu anki adres: <code>{insecureHost}</code> — yerine{' '}
-          <code>localhost:3000</code> üzerinden açın.
-        </div>
+          <AlertTitle className="text-[var(--color-warning-foreground)]">
+            Güvensiz bağlantı.
+          </AlertTitle>
+          <AlertDescription className="text-[var(--color-warning-foreground)]">
+            Tarayıcılar mikrofonu yalnızca{' '}
+            <code className="mx-1 font-mono">https://</code> veya{' '}
+            <code className="mx-1 font-mono">localhost</code> üzerinden açar.
+            Şu anki adres: <code className="font-mono">{insecureHost}</code> —
+            yerine <code className="font-mono">localhost:3000</code> üzerinden açın.
+          </AlertDescription>
+        </Alert>
       )}
 
       <MicButton mode={mode} rms={rms} onClick={onClick} />
 
       {mode === 'paused' && (
-        <button type="button" onClick={onClose} style={pausedCloseButtonStyle}>
+        <Button variant="destructive" onClick={onClose} className="-mt-1">
           Konuşmayı Kapat
-        </button>
+        </Button>
       )}
 
-      <p style={{ margin: 0, fontSize: 15, color: '#6b6b74', minHeight: 22 }}>
+      <p className="m-0 mt-2 min-h-[22px] text-[15px] text-muted-foreground">
         {statusMessage(mode)}
       </p>
 
-      {active && <RmsBar rms={rms} accent={mode} />}
-
       {error && (
-        <div role="alert" style={errorStyle}>
-          <p style={{ margin: 0 }}>{error}</p>
+        <div
+          role="alert"
+          className="m-0 max-w-[320px] text-center text-[13px] text-destructive"
+        >
+          <p className="m-0">{error}</p>
           {/* Mic permission errors are the only path where the user is
-              expected to take action OUTSIDE the app to recover. friendlyError
-              normalises both "Mikrofon izni reddedildi" (NotAllowedError) and
-              "Mikrofon başka bir uygulama tarafından kullanılıyor"
-              (NotReadableError) to messages starting with "Mikrofon", so a
-              single prefix check covers both. The instruction text routes
-              the user to the recovery surface — on Android Chrome that's
-              the per-site permission screen reachable from the lock icon
-              in the address bar OR from system Settings → Apps → Chrome →
-              Permissions → Microphone. We deliberately give a textual hint
-              instead of a `chrome://settings/...` link because chrome://
-              URLs are blocked from web-page navigation on every modern
-              Chrome build. */}
+              expected to take action OUTSIDE the app. friendlyError
+              normalises NotAllowedError + NotReadableError to messages
+              starting with "Mikrofon", so a single prefix check covers
+              both. We use a textual hint instead of a chrome://settings
+              link because chrome:// URLs are blocked from web pages on
+              every modern Chrome build. */}
           {error.startsWith('Mikrofon') && (
-            <p style={{ margin: '6px 0 0', fontSize: 13, color: '#7c2d12' }}>
+            <p className="mt-1.5 text-[13px] text-destructive/85">
               İzin vermek için adres çubuğundaki kilit simgesine dokunun veya{' '}
               <strong>Ayarlar → Uygulamalar → Chrome → İzinler → Mikrofon</strong>{' '}
               yolundan açın.
@@ -134,20 +121,31 @@ export function ConversationView() {
         </div>
       )}
 
-      {/* TranscriptPanel is dev-only by default. Production is voice-only —
-          the user listens, the on-screen text is reserved for debugging.
-          Override per-environment via NEXT_PUBLIC_SHOW_TRANSCRIPT=1. */}
-      {env.showTranscript && (partial || final || assistantText) && (
-        <TranscriptPanel
-          partial={partial}
-          final={final}
-          assistantText={assistantText}
-          mode={mode}
-        />
-      )}
+      {/* Transcript + history panels disabled per user feedback 2026-05-17.
+          Restore by uncommenting the JSX below AND uncommenting the function
+          declarations at the bottom of this file. NEXT_PUBLIC_SHOW_TRANSCRIPT=1
+          still gates them — the env flag remains the runtime switch.
 
-      {/* Same env gate as TranscriptPanel — both surface transcript text. */}
+      <AnimatePresence>
+        {env.showTranscript && (partial || final || assistantText) && (
+          <motion.div
+            key="transcript"
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            className="w-full max-w-[420px]"
+          >
+            <TranscriptPanel
+              partial={partial}
+              final={final}
+              assistantText={assistantText}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {env.showTranscript && history.length > 0 && <HistoryPanel entries={history} />}
+      */}
     </div>
   );
 }
@@ -173,130 +171,42 @@ function statusMessage(mode: MicButtonMode): string {
   }
 }
 
-const pausedCloseButtonStyle: React.CSSProperties = {
-  padding: '10px 18px',
-  background: '#fee2e2',
-  border: '1px solid #fca5a5',
-  borderRadius: 10,
-  color: '#991b1b',
-  fontSize: 14,
-  fontWeight: 500,
-  cursor: 'pointer',
-  marginTop: -4,
-};
+/* Transcript + history function bodies — disabled per user feedback
+   2026-05-17. Restore by uncommenting this block AND the JSX usage above.
 
-function RmsBar({ rms, accent }: { rms: number; accent: MicButtonMode }) {
-  const fill = Math.min(100, (rms / 3000) * 100);
-  const color =
-    accent === 'user-speaking'
-      ? '#ef4444'
-      : accent === 'assistant-speaking'
-        ? '#0ea5e9'
-        : '#7c3aed';
-  return (
-    <div style={{ width: 240 }}>
-      <div
-        aria-hidden
-        style={{
-          width: '100%',
-          height: 6,
-          background: '#e5e7eb',
-          borderRadius: 999,
-          overflow: 'hidden',
-        }}
-      >
-        <div
-          style={{
-            width: `${fill}%`,
-            height: '100%',
-            background: color,
-            transition: 'width 40ms linear',
-          }}
-        />
-      </div>
-      <p
-        style={{
-          marginTop: 6,
-          marginBottom: 0,
-          fontSize: 11,
-          color: '#9ca3af',
-          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-          textAlign: 'center',
-          letterSpacing: 0.3,
-        }}
-      >
-        RMS {rms.toFixed(0).padStart(4, ' ')}
-      </p>
-    </div>
-  );
-}
-
-function TranscriptPanel(props: {
+function TranscriptPanel({
+  partial,
+  final,
+  assistantText,
+}: {
   partial: string;
   final: string;
   assistantText: string;
-  mode: MicButtonMode;
 }) {
   return (
-    <div
-      style={{
-        width: '100%',
-        maxWidth: 420,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 12,
-      }}
-    >
-      {(props.partial || props.final) && (
-        <div
-          style={{
-            background: '#f5f3ff',
-            border: '1px solid #e9d5ff',
-            borderRadius: 14,
-            padding: '12px 14px',
-          }}
-        >
-          <p
-            style={{
-              margin: 0,
-              fontSize: 11,
-              textTransform: 'uppercase',
-              letterSpacing: 0.5,
-              color: '#7c3aed',
-            }}
-          >
+    <div className="flex w-full flex-col gap-3">
+      {(partial || final) && (
+        <div className="rounded-xl border border-border bg-card px-3.5 py-3">
+          <p className="m-0 text-[11px] uppercase tracking-[0.5px] text-brand-600">
             Siz
           </p>
-          <p style={{ margin: '4px 0 0', color: '#0b0b0f', fontSize: 15, lineHeight: 1.45 }}>
-            {props.partial ? (
-              <span style={{ color: '#a78bfa', fontStyle: 'italic' }}>{props.partial}</span>
-            ) : props.final}
+          <p className="m-0 mt-1 text-[15px] leading-relaxed text-foreground">
+            {partial ? (
+              <span className="italic text-brand-400">{partial}</span>
+            ) : (
+              final
+            )}
           </p>
         </div>
       )}
 
-      {props.assistantText && (
-        <div
-          style={{
-            background: '#f0f9ff',
-            border: '1px solid #bae6fd',
-            borderRadius: 14,
-            padding: '12px 14px',
-          }}
-        >
-          <p
-            style={{
-              margin: 0,
-              fontSize: 11,
-              textTransform: 'uppercase',
-              letterSpacing: 0.5,
-              color: '#0284c7',
-            }}
-          >
+      {assistantText && (
+        <div className="rounded-xl border border-border bg-card px-3.5 py-3">
+          <p className="m-0 text-[11px] uppercase tracking-[0.5px] text-assistant-600">
             Asistan
           </p>
-          <p style={{ margin: '4px 0 0', color: '#0b0b0f', fontSize: 15, lineHeight: 1.45 }}>
-            {props.assistantText}
+          <p className="m-0 mt-1 text-[15px] leading-relaxed text-foreground">
+            {assistantText}
           </p>
         </div>
       )}
@@ -306,45 +216,23 @@ function TranscriptPanel(props: {
 
 function HistoryPanel({ entries }: { entries: HistoryEntry[] }) {
   return (
-    <details style={{ width: '100%', maxWidth: 420, marginTop: 8 }}>
-      <summary
-        style={{
-          cursor: 'pointer',
-          fontSize: 13,
-          color: '#6b6b74',
-          listStyle: 'revert',
-        }}
-      >
+    <details className="mt-2 w-full max-w-[420px]">
+      <summary className="cursor-pointer text-[13px] text-muted-foreground">
         Bu oturum geçmişi ({entries.length})
       </summary>
-      <ol
-        style={{
-          padding: 0,
-          listStyle: 'none',
-          marginTop: 10,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 8,
-        }}
-      >
+      <ol className="m-0 mt-2.5 flex list-none flex-col gap-2 p-0">
         {entries.map((e, i) => (
           <li
             key={i}
-            style={{
-              background: '#fafafa',
-              border: '1px solid #e5e7eb',
-              borderRadius: 10,
-              padding: '10px 12px',
-              fontSize: 13,
-            }}
+            className="rounded-md border border-border bg-surface-subtle px-3 py-2.5 text-[13px]"
           >
             <div>
-              <strong style={{ color: '#7c3aed' }}>Siz:</strong>{' '}
-              <span style={{ color: '#0b0b0f' }}>{e.user || '—'}</span>
+              <strong className="text-brand-600">Siz:</strong>{' '}
+              <span className="text-foreground">{e.user || '—'}</span>
             </div>
-            <div style={{ marginTop: 4 }}>
-              <strong style={{ color: '#0284c7' }}>Asistan:</strong>{' '}
-              <span style={{ color: '#0b0b0f' }}>{e.assistant || '—'}</span>
+            <div className="mt-1">
+              <strong className="text-assistant-600">Asistan:</strong>{' '}
+              <span className="text-foreground">{e.assistant || '—'}</span>
             </div>
           </li>
         ))}
@@ -353,10 +241,4 @@ function HistoryPanel({ entries }: { entries: HistoryEntry[] }) {
   );
 }
 
-const errorStyle: React.CSSProperties = {
-  color: '#dc2626',
-  fontSize: 13,
-  margin: 0,
-  maxWidth: 320,
-  textAlign: 'center',
-};
+*/

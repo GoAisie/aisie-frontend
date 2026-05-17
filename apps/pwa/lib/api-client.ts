@@ -60,7 +60,7 @@ async function tryRefreshAccessToken(): Promise<boolean> {
 function getJwtExpiry(token: string): number | null {
   try {
     const payload = JSON.parse(
-      atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')),
+      atob((token.split('.')[1] ?? '').replace(/-/g, '+').replace(/_/g, '/')),
     );
     return typeof payload.exp === 'number' ? payload.exp : null;
   } catch {

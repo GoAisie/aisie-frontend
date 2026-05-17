@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
+import { X } from 'lucide-react';
 
 const DISMISSED_KEY = 'aisie-ios-install-dismissed';
 const DISMISS_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -28,7 +30,8 @@ function isStandalone(): boolean {
 
 // iOS Safari does not fire `beforeinstallprompt` — the only install path is
 // the native Share sheet's "Add to Home Screen". Users can't discover that
-// on their own, so we nudge them with a dismissable banner.
+// on their own, so we nudge them with a dismissable banner. The banner
+// stays dark in both light and dark themes — iOS notification convention.
 export function IosInstallPrompt() {
   const [visible, setVisible] = useState(false);
 
@@ -44,8 +47,6 @@ export function IosInstallPrompt() {
     setVisible(true);
   }, []);
 
-  if (!visible) return null;
-
   const dismiss = () => {
     try {
       localStorage.setItem(DISMISSED_KEY, String(Date.now()));
@@ -56,52 +57,38 @@ export function IosInstallPrompt() {
   };
 
   return (
-    <div
-      role="dialog"
-      aria-label="Aisie'yi telefonunuza ekleyin"
-      style={{
-        position: 'fixed',
-        left: 12,
-        right: 12,
-        bottom: 'calc(80px + env(safe-area-inset-bottom))',
-        background: '#0b0b0f',
-        color: '#fff',
-        borderRadius: 14,
-        padding: '14px 16px',
-        zIndex: 60,
-        boxShadow: '0 12px 32px rgba(0,0,0,0.35)',
-        display: 'flex',
-        gap: 12,
-        alignItems: 'flex-start',
-      }}
-    >
-      <div style={{ flex: 1, fontSize: 14, lineHeight: 1.45 }}>
-        <strong style={{ display: 'block', marginBottom: 4 }}>
-          Aisie'yi ana ekranınıza ekleyin
-        </strong>
-        <span style={{ color: '#d4d4d8' }}>
-          Alt çubuktaki
-          <ShareGlyph />
-          Paylaş butonuna dokunun, ardından <em>Ana Ekran'a Ekle</em>'yi seçin.
-        </span>
-      </div>
-      <button
-        type="button"
-        onClick={dismiss}
-        aria-label="Kapat"
-        style={{
-          background: 'transparent',
-          border: 'none',
-          color: '#9ca3af',
-          fontSize: 22,
-          lineHeight: 1,
-          cursor: 'pointer',
-          padding: 4,
-        }}
-      >
-        ×
-      </button>
-    </div>
+    <AnimatePresence>
+      {visible && (
+        <motion.div
+          role="dialog"
+          aria-label="Aisie'yi telefonunuza ekleyin"
+          initial={{ y: 80, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: 80, opacity: 0 }}
+          transition={{ type: 'spring', stiffness: 260, damping: 30 }}
+          className="fixed left-3 right-3 z-[60] flex items-start gap-3 rounded-2xl bg-zinc-900 px-4 py-3.5 text-zinc-50 shadow-[0_12px_32px_rgba(0,0,0,0.35)]"
+          style={{ bottom: 'calc(80px + env(safe-area-inset-bottom))' }}
+        >
+          <div className="flex-1 text-sm leading-snug">
+            <strong className="mb-1 block">
+              Aisie'yi ana ekranınıza ekleyin
+            </strong>
+            <span className="text-zinc-300">
+              Alt çubuktaki <ShareGlyph /> Paylaş butonuna dokunun, ardından{' '}
+              <em>Ana Ekran'a Ekle</em>'yi seçin.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={dismiss}
+            aria-label="Kapat"
+            className="flex size-7 shrink-0 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-white/10 hover:text-zinc-50"
+          >
+            <X className="size-[18px]" aria-hidden />
+          </button>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
 
@@ -109,15 +96,15 @@ function ShareGlyph() {
   return (
     <svg
       aria-hidden
-      width="16"
-      height="16"
+      width="14"
+      height="14"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
       strokeWidth={2}
       strokeLinecap="round"
       strokeLinejoin="round"
-      style={{ verticalAlign: '-2px', margin: '0 4px' }}
+      className="mx-1 -mt-0.5 inline align-middle"
     >
       <path d="M12 3v12" />
       <path d="M7 8l5-5 5 5" />

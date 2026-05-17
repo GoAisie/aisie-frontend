@@ -1,10 +1,12 @@
 'use client';
 
 import { QueryClientProvider } from '@tanstack/react-query';
+import { ThemeProvider } from 'next-themes';
 import { useState, useEffect } from 'react';
 import { createQueryClient } from '@/lib/query-client';
 import { useSessionStore } from '@/lib/auth/session-store';
 import { useConversationStore } from '@/lib/conversation/conversation-store';
+import { Toaster } from '@/components/ui/sonner';
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(() => createQueryClient());
@@ -43,5 +45,17 @@ export function Providers({ children }: { children: React.ReactNode }) {
     return unsubscribe;
   }, []);
 
-  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+  return (
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider
+        attribute="class"
+        defaultTheme="light"
+        enableSystem={false}
+        disableTransitionOnChange
+      >
+        {children}
+        <Toaster />
+      </ThemeProvider>
+    </QueryClientProvider>
+  );
 }

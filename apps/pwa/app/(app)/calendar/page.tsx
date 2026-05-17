@@ -1,13 +1,33 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import { apiFetch } from '@/lib/api-client';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { ListCard } from '@/components/ui/list-card';
+import { PageHeader } from '@/components/ui/page-header';
+import { cn } from '@/lib/utils';
 import type { CalendarEvent } from '@aisie/shared';
 
 const MONTH_NAMES = [
-  'Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran',
-  'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık',
+  'Ocak',
+  'Şubat',
+  'Mart',
+  'Nisan',
+  'Mayıs',
+  'Haziran',
+  'Temmuz',
+  'Ağustos',
+  'Eylül',
+  'Ekim',
+  'Kasım',
+  'Aralık',
 ];
 const DAY_LABELS = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
 
@@ -15,33 +35,42 @@ const DAY_LABELS = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
 // event renders with the same neutral marker — no longer color-coded by
 // type. Cancelled events flow through `to_be_deleted` so they're filtered
 // at the backend list endpoint and never reach the UI.
-const EVENT_DOT_COLOR = '#7c3aed';
 
 // JS getDay() returns 0=Sun…6=Sat; convert to ISO weekday (0=Mon…6=Sun).
-function jsToIso(jsDay: number) { return (jsDay + 6) % 7; }
+function jsToIso(jsDay: number) {
+  return (jsDay + 6) % 7;
+}
 
 function localDateStr(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-function todayLocal() { return localDateStr(new Date()); }
+function todayLocal() {
+  return localDateStr(new Date());
+}
 
 export default function CalendarPage() {
   const today = useMemo(() => todayLocal(), []);
 
   const [viewMonth, setViewMonth] = useState<Date>(() => {
-    const d = new Date(); d.setDate(1); return d;
+    const d = new Date();
+    d.setDate(1);
+    return d;
   });
   const [selectedDate, setSelectedDate] = useState<string>(today);
   const [showPicker, setShowPicker] = useState(false);
 
-  const year  = viewMonth.getFullYear();
+  const year = viewMonth.getFullYear();
   const month = viewMonth.getMonth(); // 0-indexed
 
   const fromISO = new Date(Date.UTC(year, month, 1)).toISOString();
-  const toISO   = new Date(Date.UTC(year, month + 1, 1)).toISOString();
+  const toISO = new Date(Date.UTC(year, month + 1, 1)).toISOString();
 
-  const { data: events = [], isLoading, isError } = useQuery({
+  const {
+    data: events = [],
+    isLoading,
+    isError,
+  } = useQuery({
     queryKey: ['calendar-events', year, month],
     queryFn: () =>
       apiFetch<CalendarEvent[]>(
@@ -60,8 +89,8 @@ export default function CalendarPage() {
 
   // Build 6×7 grid (42 cells): null for padding, day number for real days.
   const cells = useMemo<(number | null)[]>(() => {
-    const firstDay   = new Date(year, month, 1);
-    const offset     = jsToIso(firstDay.getDay()); // 0-6, Mon=0
+    const firstDay = new Date(year, month, 1);
+    const offset = jsToIso(firstDay.getDay()); // 0-6, Mon=0
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const grid: (number | null)[] = Array(offset).fill(null);
     for (let d = 1; d <= daysInMonth; d++) grid.push(d);
@@ -74,96 +103,123 @@ export default function CalendarPage() {
     setViewMonth(next);
     const nextMonthStr = localDateStr(next).slice(0, 7);
     const todayMonthStr = today.slice(0, 7);
-    setSelectedDate(nextMonthStr === todayMonthStr ? today : localDateStr(next));
+    setSelectedDate(
+      nextMonthStr === todayMonthStr ? today : localDateStr(next),
+    );
   };
 
   const selectedEvents = eventsByDate[selectedDate] ?? [];
 
   return (
-    <section style={{ padding: '24px 16px 8px' }}>
-      <header style={{ marginBottom: 16 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Ajanda</h1>
-      </header>
+    <section className="px-4 pt-15 pb-2">
+      <PageHeader title="Ajanda" />
 
       {/* Month navigation — click title to open year/month picker */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-        <button onClick={() => goMonth(-1)} style={navBtnStyle} aria-label="Önceki ay">‹</button>
+      <div className="mb-2.5 flex items-center justify-between">
+        <button
+          onClick={() => goMonth(-1)}
+          aria-label="Önceki ay"
+          className="flex size-9 items-center justify-center rounded-md border border-border bg-card text-foreground transition-colors hover:bg-muted active:scale-95"
+        >
+          <ChevronLeft className="size-4" aria-hidden />
+        </button>
         <button
           onClick={() => setShowPicker(true)}
-          style={titleBtnStyle}
           aria-label={`${MONTH_NAMES[month]} ${year} — yıl ve ay seçici aç`}
+          className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[16px] font-semibold text-foreground transition-colors hover:bg-muted active:scale-[0.97]"
         >
           {MONTH_NAMES[month]} {year}
-          <span style={{ fontSize: 11, color: '#9ca3af', marginLeft: 6 }}>▾</span>
+          <ChevronDown
+            className="size-3.5 text-muted-foreground"
+            aria-hidden
+          />
         </button>
-        <button onClick={() => goMonth(1)} style={navBtnStyle} aria-label="Sonraki ay">›</button>
+        <button
+          onClick={() => goMonth(1)}
+          aria-label="Sonraki ay"
+          className="flex size-9 items-center justify-center rounded-md border border-border bg-card text-foreground transition-colors hover:bg-muted active:scale-95"
+        >
+          <ChevronRight className="size-4" aria-hidden />
+        </button>
       </div>
 
-      {showPicker && (
-        <MonthYearPicker
-          currentYear={year}
-          currentMonth={month}
-          onPick={(y, m) => {
-            setViewMonth(new Date(y, m, 1));
-            const newMonthStr = `${y}-${String(m + 1).padStart(2, '0')}`;
-            const todayMonthStr = today.slice(0, 7);
-            setSelectedDate(newMonthStr === todayMonthStr ? today : `${newMonthStr}-01`);
-            setShowPicker(false);
-          }}
-          onClose={() => setShowPicker(false)}
-        />
-      )}
-
       {isError && (
-        <p style={{ color: '#dc2626', fontSize: 13, marginBottom: 8 }}>Ajanda yüklenemedi.</p>
+        <p className="mb-2 text-[13px] text-destructive">
+          Ajanda yüklenemedi.
+        </p>
       )}
 
       {/* Day-of-week headers */}
-      <div style={weekHeaderGrid}>
+      <div className="mb-1 grid grid-cols-7">
         {DAY_LABELS.map((l) => (
-          <div key={l} style={dayHeaderStyle}>{l}</div>
+          <div
+            key={l}
+            className="pb-1 text-center text-[11px] font-semibold text-muted-foreground"
+          >
+            {l}
+          </div>
         ))}
       </div>
 
       {/* Calendar grid */}
-      <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden', marginBottom: 20 }}>
-        <div style={calGridStyle}>
+      <div className="mb-5 overflow-hidden rounded-xl border border-border">
+        <div className="grid grid-cols-7">
           {cells.map((day, idx) => {
             if (day === null) {
-              return <div key={`pad-${idx}`} style={emptyCellStyle} />;
+              return (
+                <div
+                  key={`pad-${idx}`}
+                  className="aspect-square border-b border-r border-border/40 bg-surface-subtle [&:nth-child(7n)]:border-r-0"
+                />
+              );
             }
             const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-            const isToday    = dateStr === today;
+            const isToday = dateStr === today;
             const isSelected = dateStr === selectedDate;
-            const dayEvents  = eventsByDate[dateStr] ?? [];
+            const dayEvents = eventsByDate[dateStr] ?? [];
 
             return (
               <button
                 key={dateStr}
                 onClick={() => setSelectedDate(dateStr)}
-                style={{
-                  ...dayCellStyle,
-                  background: isSelected ? '#7c3aed' : '#fff',
-                  color: isSelected ? '#fff' : '#0b0b0f',
-                  boxShadow: isToday && !isSelected ? 'inset 0 0 0 2px #7c3aed' : 'none',
-                }}
+                className={cn(
+                  'flex aspect-square flex-col items-center justify-center border-b border-r border-border/40 px-1 py-1 transition-colors active:scale-[0.95] [&:nth-child(7n)]:border-r-0',
+                  isSelected
+                    ? 'bg-brand-600 text-white'
+                    : 'bg-card text-foreground hover:bg-muted',
+                  !isSelected &&
+                    isToday &&
+                    'ring-2 ring-inset ring-brand-600',
+                )}
               >
-                <span style={{ fontSize: 13, fontWeight: isToday || isSelected ? 700 : 400 }}>
+                <span
+                  className={cn(
+                    'text-[13px]',
+                    isToday || isSelected ? 'font-bold' : 'font-normal',
+                  )}
+                >
                   {day}
                 </span>
                 {dayEvents.length > 0 && (
-                  <div style={{ display: 'flex', gap: 2, justifyContent: 'center', marginTop: 3 }}>
+                  <div className="mt-1 flex justify-center gap-0.5">
                     {dayEvents.slice(0, 3).map((_e, i) => (
                       <span
                         key={i}
-                        style={{
-                          width: 5, height: 5, borderRadius: '50%', flexShrink: 0,
-                          background: isSelected ? 'rgba(255,255,255,0.85)' : EVENT_DOT_COLOR,
-                        }}
+                        aria-hidden
+                        className={cn(
+                          'size-1 shrink-0 rounded-full',
+                          isSelected ? 'bg-white/85' : 'bg-brand-600',
+                        )}
                       />
                     ))}
                     {dayEvents.length > 3 && (
-                      <span style={{ fontSize: 7, lineHeight: '5px', color: isSelected ? '#e9d5ff' : '#6b6b74' }}>
+                      <span
+                        aria-hidden
+                        className={cn(
+                          'text-[8px] leading-[5px]',
+                          isSelected ? 'text-brand-100' : 'text-muted-foreground',
+                        )}
+                      >
                         +
                       </span>
                     )}
@@ -177,93 +233,89 @@ export default function CalendarPage() {
 
       {/* Selected day event list */}
       <div>
-        <p style={{ fontSize: 12, fontWeight: 600, color: '#6b6b74', marginBottom: 8, marginTop: 0 }}>
+        <p className="m-0 mb-2 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">
           {new Date(selectedDate + 'T12:00:00').toLocaleDateString('tr-TR', {
-            day: 'numeric', month: 'long', weekday: 'long',
+            day: 'numeric',
+            month: 'long',
+            weekday: 'long',
           })}
         </p>
 
         {isLoading ? (
-          <p style={{ color: '#6b6b74', fontSize: 14 }}>Yükleniyor…</p>
+          <p className="m-0 text-[14px] text-muted-foreground">Yükleniyor…</p>
         ) : selectedEvents.length === 0 ? (
-          <p style={{ color: '#9ca3af', fontSize: 14 }}>Bu gün için etkinlik yok.</p>
+          <p className="m-0 text-[14px] text-muted-foreground/70">
+            Bu gün için etkinlik yok.
+          </p>
         ) : (
-          <ul style={{ padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <ul className="m-0 flex list-none flex-col gap-2 p-0">
             {selectedEvents.map((e) => {
               const time = new Date(e.start_at).toLocaleTimeString('tr-TR', {
-                hour: '2-digit', minute: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
               });
               return (
-                <li key={e.event_id} style={cardStyle}>
-                  <strong style={{ fontSize: 15, color: '#0b0b0f', lineHeight: 1.3, display: 'block' }}>{e.title}</strong>
-                  <p style={{ margin: '4px 0 0', color: '#7c3aed', fontSize: 13, fontWeight: 500 }}>{time}</p>
-                  {e.description && (
-                    <p style={{ margin: '6px 0 0', color: '#6b6b74', fontSize: 13, lineHeight: 1.45 }}>
-                      {e.description}
+                <li key={e.event_id} className="list-none">
+                  <ListCard>
+                    <strong className="block text-[15px] font-semibold leading-tight text-foreground">
+                      {e.title}
+                    </strong>
+                    <p className="m-0 mt-1 text-[13px] font-medium text-brand-600">
+                      {time}
                     </p>
-                  )}
+                    {e.description && (
+                      <p className="m-0 mt-1.5 text-[13px] leading-snug text-muted-foreground">
+                        {e.description}
+                      </p>
+                    )}
+                  </ListCard>
                 </li>
               );
             })}
           </ul>
         )}
       </div>
+
+      <Dialog
+        open={showPicker}
+        onOpenChange={(open) => {
+          if (!open) setShowPicker(false);
+        }}
+      >
+        <DialogContent className="max-w-[340px]">
+          <DialogHeader>
+            <DialogTitle className="sr-only">Yıl ve ay seçimi</DialogTitle>
+          </DialogHeader>
+          <YearMonthBody
+            currentYear={year}
+            currentMonth={month}
+            onPick={(y, m) => {
+              setViewMonth(new Date(y, m, 1));
+              const newMonthStr = `${y}-${String(m + 1).padStart(2, '0')}`;
+              const todayMonthStr = today.slice(0, 7);
+              setSelectedDate(
+                newMonthStr === todayMonthStr ? today : `${newMonthStr}-01`,
+              );
+              setShowPicker(false);
+            }}
+          />
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }
 
-const navBtnStyle: React.CSSProperties = {
-  background: 'none', border: '1px solid #e5e7eb', borderRadius: 8,
-  width: 36, height: 36, padding: 0, cursor: 'pointer',
-  fontSize: 20, color: '#374151', display: 'flex', alignItems: 'center', justifyContent: 'center',
-};
-const titleBtnStyle: React.CSSProperties = {
-  background: 'none', border: '1px solid transparent', borderRadius: 8,
-  padding: '4px 10px', cursor: 'pointer',
-  fontSize: 16, fontWeight: 600, color: '#0b0b0f',
-  display: 'flex', alignItems: 'center',
-};
-const weekHeaderGrid: React.CSSProperties = {
-  display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', marginBottom: 4,
-};
-const dayHeaderStyle: React.CSSProperties = {
-  textAlign: 'center', fontSize: 11, fontWeight: 600,
-  color: '#9ca3af', paddingBottom: 4,
-};
-const calGridStyle: React.CSSProperties = {
-  display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)',
-};
-const emptyCellStyle: React.CSSProperties = {
-  aspectRatio: '1', background: '#fafafa',
-  borderRight: '1px solid #f3f4f6', borderBottom: '1px solid #f3f4f6',
-};
-const dayCellStyle: React.CSSProperties = {
-  aspectRatio: '1', display: 'flex', flexDirection: 'column',
-  alignItems: 'center', justifyContent: 'center',
-  border: 'none', borderRight: '1px solid #f3f4f6', borderBottom: '1px solid #f3f4f6',
-  cursor: 'pointer', padding: '4px 2px', borderRadius: 0, outline: '2px solid transparent',
-};
-const cardStyle: React.CSSProperties = {
-  listStyle: 'none', padding: '12px 14px',
-  background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12,
-};
-
-// ----- Year/month picker modal -------------------------------------------------
-//
-// Two-stage commit: tapping a year row updates the pending year but keeps the
-// modal open so the user can then pick a month in the same gesture. Tapping a
-// month fires onPick(year, month) and closes — single confirm action.
-
-function MonthYearPicker({
+// Two-stage commit: tapping a year row updates the pending year but keeps
+// the modal open so the user can pick a month in the same gesture. Tapping
+// a month fires onPick(year, month) and closes — single confirm action.
+function YearMonthBody({
   currentYear,
   currentMonth,
   onPick,
-  onClose,
 }: {
   currentYear: number;
   currentMonth: number;
   onPick: (year: number, month: number) => void;
-  onClose: () => void;
 }) {
   const [pendingYear, setPendingYear] = useState(currentYear);
   const thisYear = new Date().getFullYear();
@@ -275,101 +327,56 @@ function MonthYearPicker({
     return arr;
   }, [thisYear]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
   return (
-    <div
-      onClick={onClose}
-      style={{
-        position: 'fixed', inset: 0, zIndex: 50,
-        background: 'rgba(15, 16, 25, 0.55)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: 16,
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-label="Yıl ve ay seçimi"
-        style={{
-          width: '100%', maxWidth: 340,
-          background: '#fff', borderRadius: 14, padding: 16,
-          boxShadow: '0 18px 40px rgba(0,0,0,0.25)',
-        }}
-      >
-        <p style={{ margin: '0 0 10px', fontSize: 12, fontWeight: 600, color: '#6b6b74', textTransform: 'uppercase', letterSpacing: 0.4 }}>
+    <div className="flex flex-col gap-4">
+      <div>
+        <p className="m-0 mb-2 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">
           Yıl
         </p>
-        <div
-          style={{
-            display: 'flex', gap: 6, overflowX: 'auto',
-            paddingBottom: 6, marginBottom: 14,
-            WebkitOverflowScrolling: 'touch',
-          }}
-        >
+        <div className="flex gap-1.5 overflow-x-auto pb-1.5">
           {years.map((y) => {
             const active = y === pendingYear;
             return (
               <button
                 key={y}
                 onClick={() => setPendingYear(y)}
-                style={{
-                  flex: '0 0 auto',
-                  padding: '8px 14px', borderRadius: 999,
-                  border: '1px solid ' + (active ? '#7c3aed' : '#e5e7eb'),
-                  background: active ? '#7c3aed' : '#fff',
-                  color: active ? '#fff' : '#374151',
-                  fontSize: 14, fontWeight: active ? 600 : 500,
-                  cursor: 'pointer', whiteSpace: 'nowrap',
-                }}
+                className={cn(
+                  'shrink-0 rounded-full border px-3.5 py-1.5 text-[14px] font-medium transition-colors active:scale-95',
+                  active
+                    ? 'border-brand-600 bg-brand-600 text-white'
+                    : 'border-border bg-card text-foreground hover:bg-muted',
+                )}
               >
                 {y}
               </button>
             );
           })}
         </div>
+      </div>
 
-        <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 600, color: '#6b6b74', textTransform: 'uppercase', letterSpacing: 0.4 }}>
+      <div>
+        <p className="m-0 mb-2 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">
           Ay
         </p>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+        <div className="grid grid-cols-4 gap-1.5">
           {MONTH_NAMES.map((name, idx) => {
-            const isCurrent = pendingYear === currentYear && idx === currentMonth;
+            const isCurrent =
+              pendingYear === currentYear && idx === currentMonth;
             return (
               <button
                 key={idx}
                 onClick={() => onPick(pendingYear, idx)}
-                style={{
-                  padding: '10px 4px', borderRadius: 8,
-                  border: '1px solid ' + (isCurrent ? '#7c3aed' : '#e5e7eb'),
-                  background: isCurrent ? '#ede9fe' : '#fff',
-                  color: isCurrent ? '#5b21b6' : '#374151',
-                  fontSize: 13, fontWeight: isCurrent ? 600 : 500,
-                  cursor: 'pointer',
-                }}
+                className={cn(
+                  'rounded-md border px-1 py-2.5 text-[13px] font-medium transition-colors active:scale-95',
+                  isCurrent
+                    ? 'border-brand-600 bg-brand-100 text-brand-800'
+                    : 'border-border bg-card text-foreground hover:bg-muted',
+                )}
               >
                 {name.slice(0, 3)}
               </button>
             );
           })}
-        </div>
-
-        <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end' }}>
-          <button
-            onClick={onClose}
-            style={{
-              background: 'none', border: 'none', color: '#6b6b74',
-              fontSize: 13, padding: '6px 4px', cursor: 'pointer',
-            }}
-          >
-            Kapat
-          </button>
         </div>
       </div>
     </div>

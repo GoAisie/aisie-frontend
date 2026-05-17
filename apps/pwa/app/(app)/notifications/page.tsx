@@ -1,7 +1,14 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Bell, BellOff, Calendar, FileText } from 'lucide-react';
+import type { ComponentType, SVGProps } from 'react';
 import { apiFetch } from '@/lib/api-client';
+import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/empty-state';
+import { ListCard } from '@/components/ui/list-card';
+import { PageHeader } from '@/components/ui/page-header';
+import { cn } from '@/lib/utils';
 import type { Notification } from '@aisie/shared';
 
 function relativeTime(iso: string): string {
@@ -14,10 +21,13 @@ function relativeTime(iso: string): string {
   return `${Math.floor(hrs / 24)} gün önce`;
 }
 
-const KIND_ICONS: Record<string, string> = {
-  calendar_reminder: '📅',
-  report_completed: '📄',
-  generic: '🔔',
+// Notification kind → lucide icon mapping. Emoji icons replaced 2026-05-17
+// per user feedback ("güncel profesyonel simge"). Add new kinds here as
+// backend introduces them; falls back to Bell for unknown kinds.
+const KIND_ICONS: Record<string, ComponentType<SVGProps<SVGSVGElement>>> = {
+  calendar_reminder: Calendar,
+  report_completed: FileText,
+  generic: Bell,
 };
 
 export default function NotificationsPage() {
@@ -30,17 +40,22 @@ export default function NotificationsPage() {
 
   const readMutation = useMutation({
     mutationFn: (id: string) =>
-      apiFetch<Notification>(`/api/v1/notifications/${id}/read`, { method: 'POST' }),
+      apiFetch<Notification>(`/api/v1/notifications/${id}/read`, {
+        method: 'POST',
+      }),
     onSuccess: (updated) => {
       queryClient.setQueryData<Notification[]>(['notifications'], (old = []) =>
-        old.map((n) => (n.notification_id === updated.notification_id ? updated : n)),
+        old.map((n) =>
+          n.notification_id === updated.notification_id ? updated : n,
+        ),
       );
       queryClient.invalidateQueries({ queryKey: ['notifications-unread'] });
     },
   });
 
   const readAllMutation = useMutation({
-    mutationFn: () => apiFetch<void>('/api/v1/notifications/read-all', { method: 'POST' }),
+    mutationFn: () =>
+      apiFetch<void>('/api/v1/notifications/read-all', { method: 'POST' }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
       queryClient.invalidateQueries({ queryKey: ['notifications-unread'] });
@@ -50,74 +65,86 @@ export default function NotificationsPage() {
   const unreadCount = notifications.filter((n) => !n.read_at).length;
 
   return (
-    <section style={{ padding: '24px 16px 80px' }}>
-      <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Bildirimler</h1>
-        {unreadCount > 0 && (
-          <button
-            onClick={() => readAllMutation.mutate()}
-            disabled={readAllMutation.isPending}
-            style={{
-              background: 'none', border: '1px solid #e5e7eb', borderRadius: 8,
-              padding: '6px 12px', fontSize: 12, color: '#6b6b74', cursor: 'pointer',
-            }}
-          >
-            Tümünü okundu işaretle
-          </button>
-        )}
-      </header>
+    <section className="px-4 pt-15 pb-20">
+      <PageHeader
+        title="Bildirimler"
+        rightSlot={
+          unreadCount > 0 ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => readAllMutation.mutate()}
+              disabled={readAllMutation.isPending}
+            >
+              Tümünü okundu işaretle
+            </Button>
+          ) : undefined
+        }
+      />
 
       {isLoading ? (
-        <p style={{ color: '#6b6b74', fontSize: 14 }}>Yükleniyor…</p>
+        <p className="m-0 mt-2 text-[14px] text-muted-foreground">
+          Yükleniyor…
+        </p>
       ) : notifications.length === 0 ? (
-        <p style={{ color: '#6b6b74', fontSize: 14 }}>Bildirim yok.</p>
+        <EmptyState
+          icon={<BellOff className="size-8" aria-hidden />}
+          message="Henüz bildirim yok."
+        />
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <ul className="m-0 flex list-none flex-col gap-2 p-0">
           {notifications.map((n) => {
             const isUnread = !n.read_at;
+            const Icon = KIND_ICONS[n.kind] ?? Bell;
             return (
-              <div
-                key={n.notification_id}
-                onClick={() => { if (isUnread) readMutation.mutate(n.notification_id); }}
-                style={{
-                  background: isUnread ? '#faf5ff' : '#fff',
-                  border: `1px solid ${isUnread ? '#e9d5ff' : '#e5e7eb'}`,
-                  borderRadius: 12,
-                  padding: '12px 14px',
-                  cursor: isUnread ? 'pointer' : 'default',
-                  display: 'flex',
-                  gap: 12,
-                  alignItems: 'flex-start',
-                }}
-              >
-                <span style={{ fontSize: 20, lineHeight: 1.4, flexShrink: 0 }}>
-                  {KIND_ICONS[n.kind] ?? KIND_ICONS.generic}
-                </span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-                    <strong style={{ fontSize: 14, fontWeight: 600, color: '#0b0b0f', lineHeight: 1.3 }}>
-                      {n.title}
-                    </strong>
-                    {isUnread && (
-                      <span style={{
-                        width: 8, height: 8, borderRadius: '50%', background: '#7c3aed',
-                        flexShrink: 0, marginTop: 5,
-                      }} />
-                    )}
+              <li key={n.notification_id} className="list-none">
+                <ListCard
+                  unread={isUnread}
+                  onClick={
+                    isUnread
+                      ? () => readMutation.mutate(n.notification_id)
+                      : undefined
+                  }
+                >
+                  <div className="flex items-start gap-3">
+                    <span
+                      aria-hidden
+                      className={cn(
+                        'mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full',
+                        isUnread
+                          ? 'bg-brand-100 text-brand-700'
+                          : 'bg-muted text-muted-foreground',
+                      )}
+                    >
+                      <Icon className="size-[18px]" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <strong className="text-[14px] font-semibold leading-tight text-foreground">
+                          {n.title}
+                        </strong>
+                        {isUnread && (
+                          <span
+                            aria-hidden
+                            className="mt-1.5 size-2 shrink-0 rounded-full bg-brand-600"
+                          />
+                        )}
+                      </div>
+                      {n.body && (
+                        <p className="m-0 mt-1 text-[13px] leading-snug text-foreground/80">
+                          {n.body}
+                        </p>
+                      )}
+                      <p className="m-0 mt-1.5 text-[12px] text-muted-foreground">
+                        {relativeTime(n.created_at)}
+                      </p>
+                    </div>
                   </div>
-                  {n.body && (
-                    <p style={{ margin: '2px 0 0', fontSize: 13, color: '#374151', lineHeight: 1.4 }}>
-                      {n.body}
-                    </p>
-                  )}
-                  <p style={{ margin: '4px 0 0', fontSize: 12, color: '#9ca3af' }}>
-                    {relativeTime(n.created_at)}
-                  </p>
-                </div>
-              </div>
+                </ListCard>
+              </li>
             );
           })}
-        </div>
+        </ul>
       )}
     </section>
   );

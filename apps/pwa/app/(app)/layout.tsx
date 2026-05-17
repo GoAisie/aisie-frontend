@@ -4,15 +4,15 @@ import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
+import { Bell } from 'lucide-react';
 import { BottomTabs } from '@/components/BottomTabs';
 import { IosInstallPrompt } from '@/components/IosInstallPrompt';
-import { LogoutButton } from '@/components/LogoutButton'; // fixed-position button next to bell
+import { LogoutButton } from '@/components/LogoutButton';
+import { ModeToggle } from '@/components/ModeToggle';
 import { useSessionStore } from '@/lib/auth/session-store';
 import { apiFetch } from '@/lib/api-client';
 import { subscribeToPush } from '@/lib/push';
 import type { Notification } from '@aisie/shared';
-
-const TAB_BAR_HEIGHT = 64;
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const accessToken = useSessionStore((s) => s.accessToken);
@@ -21,7 +21,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   const { data: unread = [] } = useQuery({
     queryKey: ['notifications-unread'],
-    queryFn: () => apiFetch<Notification[]>('/api/v1/notifications?unread_only=true&limit=50'),
+    queryFn: () =>
+      apiFetch<Notification[]>('/api/v1/notifications?unread_only=true&limit=50'),
     refetchInterval: false,
     staleTime: 86_400_000,
     refetchOnMount: true,
@@ -49,39 +50,32 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const badgeCount = Math.min(unread.length, 9);
 
   return (
-    <div
-      style={{
-        minHeight: '100dvh',
-        paddingBottom: `calc(${TAB_BAR_HEIGHT}px + env(safe-area-inset-bottom))`,
-      }}
-    >
-      <Link
-        href="/notifications"
-        style={{
-          position: 'fixed', top: 12, right: 60, zIndex: 40,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          width: 36, height: 36, borderRadius: '50%',
-          background: '#fff', border: '1px solid #e5e7eb',
-          boxShadow: '0 1px 4px rgba(0,0,0,0.12)',
-          textDecoration: 'none',
-        }}
-        aria-label={unread.length > 0 ? `${unread.length} okunmamış bildirim` : 'Bildirimler'}
-      >
-        <span style={{ fontSize: 18 }}>🔔</span>
-        {badgeCount > 0 && (
-          <span
-            style={{
-              position: 'absolute', top: -4, right: -4,
-              background: '#dc2626', color: '#fff',
-              fontSize: 10, fontWeight: 700, lineHeight: 1,
-              padding: '2px 5px', borderRadius: 999, minWidth: 16, textAlign: 'center',
-            }}
-          >
-            {badgeCount}{unread.length > 9 ? '+' : ''}
-          </span>
-        )}
-      </Link>
-      <LogoutButton />
+    <div className="min-h-dvh pb-[calc(64px+env(safe-area-inset-bottom))]">
+      {/* Top-right icon cluster: bell, theme toggle, logout. Single flex
+          row keeps positions consistent across breakpoints and removes
+          the need for each button to own its own fixed-position state. */}
+      <div className="fixed right-4 top-3 z-40 flex items-center gap-2">
+        <Link
+          href="/notifications"
+          aria-label={
+            unread.length > 0
+              ? `${unread.length} okunmamış bildirim`
+              : 'Bildirimler'
+          }
+          className="relative flex size-9 items-center justify-center rounded-full border border-border bg-card text-foreground shadow-sm transition-all duration-150 hover:bg-muted active:scale-95"
+        >
+          <Bell className="size-[18px]" aria-hidden />
+          {badgeCount > 0 && (
+            <span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-notification px-1.5 text-center text-[10px] font-bold leading-4 text-notification-foreground">
+              {badgeCount}
+              {unread.length > 9 ? '+' : ''}
+            </span>
+          )}
+        </Link>
+        <ModeToggle />
+        <LogoutButton />
+      </div>
+
       <main>{children}</main>
       <BottomTabs />
       <IosInstallPrompt />

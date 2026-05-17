@@ -4,26 +4,29 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { ArrowLeft, Check } from 'lucide-react';
 import { apiFetch } from '@/lib/api-client';
-import type { Report, ReportTemplate, FieldSchema } from '@aisie/shared';
 import { formatDateTime } from '@/lib/format';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  StatusBadge,
+  type ReportStatus,
+} from '@/components/ui/status-badge';
+import { cn } from '@/lib/utils';
+import type { Report, ReportTemplate, FieldSchema } from '@aisie/shared';
 
 type FieldValue = string | number | boolean | null;
 type FormState = Record<string, FieldValue>;
 
-const STATUS_LABELS: Record<string, { label: string; bg: string; color: string }> = {
-  'completed':        { label: 'Tamamlandı',     bg: '#dcfce7', color: '#166534' },
-  'in-progress':      { label: 'Devam ediyor',   bg: '#fef9c3', color: '#854d0e' },
-  'pending-approval': { label: 'Onay bekliyor',  bg: '#dbeafe', color: '#1e40af' },
-  'approved':         { label: 'Onaylandı',      bg: '#ede9fe', color: '#5b21b6' },
-  'rejected':         { label: 'Reddedildi',     bg: '#fee2e2', color: '#991b1b' },
-  'archived':         { label: 'Arşivlendi',     bg: '#f3f4f6', color: '#374151' },
-};
-
 export default function ReportDetailPage() {
   const { id } = useParams<{ id: string }>();
 
-  const { data: report, isLoading: loadingReport, isError: errorReport } = useQuery({
+  const {
+    data: report,
+    isLoading: loadingReport,
+    isError: errorReport,
+  } = useQuery({
     queryKey: ['report', id],
     queryFn: () => apiFetch<Report>(`/api/v1/reports/${id}`),
     enabled: !!id,
@@ -31,29 +34,54 @@ export default function ReportDetailPage() {
 
   const { data: template, isLoading: loadingTemplate } = useQuery({
     queryKey: ['report-template', id],
-    queryFn: () => apiFetch<ReportTemplate>(`/api/v1/reports/${id}/template`),
+    queryFn: () =>
+      apiFetch<ReportTemplate>(`/api/v1/reports/${id}/template`),
     enabled: !!id,
   });
 
   if (loadingReport || loadingTemplate) {
     return (
-      <section style={{ padding: '24px 16px 8px' }}>
-        <Link href="/reports" style={backLinkStyle}>← Raporlar</Link>
-        <p style={{ color: '#6b6b74', fontSize: 14, marginTop: 12 }}>Yükleniyor…</p>
+      <section className="px-4 pt-15 pb-2">
+        <BackLink />
+        <p className="m-0 mt-3 text-[14px] text-muted-foreground">
+          Yükleniyor…
+        </p>
       </section>
     );
   }
 
   if (errorReport || !report) {
     return (
-      <section style={{ padding: '24px 16px 8px' }}>
-        <Link href="/reports" style={backLinkStyle}>← Raporlar</Link>
-        <p style={{ color: '#dc2626', fontSize: 14, marginTop: 12 }}>Rapor yüklenemedi.</p>
+      <section className="px-4 pt-15 pb-2">
+        <BackLink />
+        <p className="m-0 mt-3 text-[14px] text-destructive">
+          Rapor yüklenemedi.
+        </p>
       </section>
     );
   }
 
   return <ReportEditor report={report} template={template ?? null} id={id} />;
+}
+
+function BackLink() {
+  // Back link rendered as a bordered Button (outline variant) so it reads
+  // as a tappable target rather than a hyperlink — matches the visual
+  // weight of "Değişiklikleri Kaydet" etc. action buttons. asChild lets
+  // Button apply its styling to the inner <Link> without nesting elements.
+  return (
+    <Button
+      asChild
+      variant="outline"
+      size="sm"
+      className="gap-1.5 text-brand-700 hover:text-brand-800 dark:text-brand-200 dark:hover:text-brand-100"
+    >
+      <Link href="/reports">
+        <ArrowLeft className="size-3.5" aria-hidden />
+        Raporlar
+      </Link>
+    </Button>
+  );
 }
 
 function ReportEditor({
@@ -72,14 +100,19 @@ function ReportEditor({
   const [form, setForm] = useState<FormState>(() => {
     const data = report.data as FormState;
     if (!template) return { ...data };
-    return Object.fromEntries(template.fields.map((f) => [f.name, data[f.name] ?? null]));
+    return Object.fromEntries(
+      template.fields.map((f) => [f.name, data[f.name] ?? null]),
+    );
   });
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const mutation = useMutation({
     mutationFn: (data: FormState) =>
-      apiFetch<Report>(`/api/v1/reports/${id}`, { method: 'PUT', body: { data } }),
+      apiFetch<Report>(`/api/v1/reports/${id}`, {
+        method: 'PUT',
+        body: { data },
+      }),
     onSuccess: (updated) => {
       queryClient.setQueryData(['report', id], updated);
       setSavedAt(new Date());
@@ -96,32 +129,40 @@ function ReportEditor({
       ? (report.data['customer_name'] as string)
       : report.template_name;
 
-  const statusMeta = STATUS_LABELS[report.status] ?? { label: report.status, bg: '#f3f4f6', color: '#374151' };
+  // Status taxonomy simplified 2026-05-17 to two values (in-progress /
+  // completed). Older 6-state STATUS_LABELS dictionary removed; any legacy
+  // status the backend may still emit gets coerced to in-progress for badge
+  // display so the UI never shows an unstyled raw string.
+  const badgeStatus: ReportStatus =
+    report.status === 'completed' ? 'completed' : 'in-progress';
 
   return (
-    <section style={{ padding: '24px 16px 80px' }}>
-      <Link href="/reports" style={backLinkStyle}>← Raporlar</Link>
+    <section className="px-4 pt-15 pb-20">
+      <BackLink />
 
-      <header style={{ margin: '8px 0 20px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, flex: 1 }}>{customerName}</h1>
-          <span style={{ ...badgeStyle, background: statusMeta.bg, color: statusMeta.color }}>
-            {statusMeta.label}
-          </span>
+      <header className="mb-5 mt-2">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <h1 className="m-0 flex-1 text-[22px] font-bold tracking-tight text-foreground">
+            {customerName}
+          </h1>
+          <StatusBadge status={badgeStatus} />
         </div>
-        <p style={{ margin: '4px 0 0', color: '#6b6b74', fontSize: 13 }}>
+        <p className="m-0 mt-1 text-[13px] text-muted-foreground">
           {report.template_name} · {formatDateTime(report.created_at)}
         </p>
       </header>
 
       {!template || template.fields.length === 0 ? (
-        <div style={{ padding: 16, background: '#f8fafc', borderRadius: 12, fontSize: 14, color: '#6b6b74' }}>
+        <div className="rounded-xl border border-border bg-surface-subtle px-4 py-4 text-[14px] text-muted-foreground">
           Bu raporun şablon alanları bulunamadı.
         </div>
       ) : (
         <form
-          onSubmit={(e) => { e.preventDefault(); mutation.mutate(form); }}
-          style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
+          onSubmit={(e) => {
+            e.preventDefault();
+            mutation.mutate(form);
+          }}
+          className="flex flex-col gap-3.5"
         >
           {template.fields.map((field) => (
             <FieldInput
@@ -136,25 +177,27 @@ function ReportEditor({
             />
           ))}
 
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, gap: 10 }}>
-            <div style={{ fontSize: 13 }}>
-              {mutation.isPending && <span style={{ color: '#6b7280' }}>Kaydediliyor…</span>}
-              {savedAt && !mutation.isPending && (
-                <span style={{ color: '#16a34a' }}>✓ Kaydedildi</span>
+          <div className="mt-2 flex items-center justify-between gap-2.5">
+            <div className="text-[13px]">
+              {mutation.isPending && (
+                <span className="text-muted-foreground">Kaydediliyor…</span>
               )}
-              {errorMsg && <span style={{ color: '#dc2626' }}>{errorMsg}</span>}
+              {savedAt && !mutation.isPending && (
+                <span className="inline-flex items-center gap-1 text-assistant-600">
+                  <Check className="size-3.5" aria-hidden /> Kaydedildi
+                </span>
+              )}
+              {errorMsg && (
+                <span className="text-destructive">{errorMsg}</span>
+              )}
             </div>
-            <button
+            <Button
               type="submit"
               disabled={mutation.isPending}
-              style={{
-                ...buttonStyle,
-                opacity: mutation.isPending ? 0.6 : 1,
-                cursor: mutation.isPending ? 'wait' : 'pointer',
-              }}
+              className="shrink-0"
             >
               {mutation.isPending ? 'Kaydediliyor…' : 'Değişiklikleri Kaydet'}
-            </button>
+            </Button>
           </div>
         </form>
       )}
@@ -172,19 +215,20 @@ function FieldInput({
   onChange: (v: FieldValue) => void;
 }) {
   const label = (
-    <span style={{ fontSize: 13, color: '#6b6b74' }}>
+    <span className="text-[13px] font-medium text-muted-foreground">
       {field.label}
-      {field.required && <span style={{ color: '#dc2626' }}> *</span>}
+      {field.required && <span className="text-destructive"> *</span>}
     </span>
   );
 
   if (field.type === 'boolean') {
     return (
-      <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <label className="flex items-center gap-2.5">
         <input
           type="checkbox"
           checked={value === true}
           onChange={(e) => onChange(e.target.checked)}
+          className="size-4 rounded border-border accent-brand-600"
         />
         {label}
       </label>
@@ -193,17 +237,22 @@ function FieldInput({
 
   if (field.type === 'single-select') {
     return (
-      <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <label className="flex flex-col gap-1.5">
         {label}
         <select
           value={value === null || value === undefined ? '' : String(value)}
           onChange={(e) => onChange(e.target.value || null)}
           required={field.required}
-          style={inputStyle}
+          className={cn(
+            'w-full rounded-md border border-input bg-card px-3 py-2 text-[14px] text-foreground transition-colors',
+            'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          )}
         >
           <option value="">— seçin —</option>
           {(field.options ?? []).map((opt) => (
-            <option key={opt} value={opt}>{opt}</option>
+            <option key={opt} value={opt}>
+              {opt}
+            </option>
           ))}
         </select>
       </label>
@@ -211,50 +260,38 @@ function FieldInput({
   }
 
   const inputType =
-    field.type === 'number' ? 'number' :
-    field.type === 'date'   ? 'date'   :
-    field.type === 'time'   ? 'time'   : 'text';
+    field.type === 'number'
+      ? 'number'
+      : field.type === 'date'
+        ? 'date'
+        : field.type === 'time'
+          ? 'time'
+          : 'text';
 
-  // date inputs require exactly "YYYY-MM-DD"; datetime strings ("2026-04-20T00:00:00")
-  // returned by older MongoDB records would show empty — strip the time portion.
+  // date inputs require exactly "YYYY-MM-DD"; datetime strings
+  // ("2026-04-20T00:00:00") returned by older MongoDB records would show
+  // empty — strip the time portion.
   const displayValue =
-    value === null || value === undefined ? '' :
-    field.type === 'date' ? String(value).slice(0, 10) :
-    String(value);
+    value === null || value === undefined
+      ? ''
+      : field.type === 'date'
+        ? String(value).slice(0, 10)
+        : String(value);
 
   return (
-    <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+    <label className="flex flex-col gap-1.5">
       {label}
-      <input
+      <Input
         type={inputType}
         value={displayValue}
         onChange={(e) => {
           const raw = e.target.value;
-          if (field.type === 'number') onChange(raw === '' ? null : Number(raw));
+          if (field.type === 'number')
+            onChange(raw === '' ? null : Number(raw));
           else onChange(raw === '' ? null : raw);
         }}
         required={field.required}
-        style={inputStyle}
       />
     </label>
   );
 }
-
-const backLinkStyle: React.CSSProperties = {
-  display: 'inline-block', padding: '6px 0',
-  fontSize: 13, color: '#7c3aed', textDecoration: 'none', fontWeight: 500,
-};
-const inputStyle: React.CSSProperties = {
-  border: '1px solid #d4d4d8', borderRadius: 8,
-  padding: '10px 12px', fontSize: 14, background: '#fff', outline: 'none',
-  width: '100%', boxSizing: 'border-box',
-};
-const buttonStyle: React.CSSProperties = {
-  background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 8,
-  padding: '11px 20px', fontSize: 14, fontWeight: 600, cursor: 'pointer',
-  flexShrink: 0,
-};
-const badgeStyle: React.CSSProperties = {
-  fontSize: 11, fontWeight: 600, padding: '3px 9px',
-  borderRadius: 999, whiteSpace: 'nowrap',
-};

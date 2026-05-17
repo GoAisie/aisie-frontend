@@ -1,29 +1,189 @@
-:root {
-  --background: #ffffff;
-  --foreground: #0b0b0f;
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-brand-50:  oklch(0.97 0.02 295);
+  --color-brand-100: oklch(0.93 0.04 295);
+  --color-brand-200: oklch(0.85 0.10 295);
+  --color-brand-300: oklch(0.78 0.14 295);
+  --color-brand-400: oklch(0.70 0.18 295);
+  --color-brand-500: oklch(0.62 0.22 295);
+  --color-brand-600: oklch(0.52 0.24 295);
+  --color-brand-700: oklch(0.44 0.22 295);
+  --color-brand-800: oklch(0.36 0.20 295);
+  --color-brand-900: oklch(0.28 0.16 295);
+
+  --color-listening-500: oklch(0.72 0.18 145);
+  --color-listening-600: oklch(0.62 0.18 145);
+
+  --color-user-500: oklch(0.66 0.22 25);
+  --color-user-600: oklch(0.56 0.22 25);
+
+  --color-processing-500: oklch(0.76 0.16 75);
+  --color-processing-600: oklch(0.66 0.16 65);
+
+  --color-assistant-400: oklch(0.78 0.13 235);
+  --color-assistant-500: oklch(0.68 0.16 235);
+  --color-assistant-600: oklch(0.58 0.16 235);
+
+  --color-paused-500: oklch(0.55 0.04 250);
+  --color-paused-600: oklch(0.45 0.04 250);
+
+  --color-mute-400: oklch(0.70 0 0);
+  --color-mute-500: oklch(0.55 0 0);
+
+  /* Semantic surfaces — subtle violet cast (chroma 0.005-0.008, hue 285) so
+     the whole app reads as ONE brand-tinted surface, not "pure white over
+     gray". Designer-touched feel without saturated background. */
+  --color-background: oklch(0.985 0.005 285);
+  --color-foreground: oklch(0.18 0.01 285);
+  --color-muted: oklch(0.95 0.008 285);
+  --color-muted-foreground: oklch(0.50 0.01 285);
+  --color-card: oklch(0.998 0.003 285);
+  --color-card-foreground: oklch(0.18 0.01 285);
+  --color-popover: oklch(0.998 0.003 285);
+  --color-popover-foreground: oklch(0.18 0.01 285);
+  --color-border: oklch(0.91 0.008 285);
+  --color-input: oklch(0.91 0.008 285);
+  --color-ring: oklch(0.52 0.24 295);
+  --color-surface-subtle: oklch(0.97 0.008 285);
+
+  --color-primary: oklch(0.52 0.24 295);
+  --color-primary-foreground: oklch(1 0 0);
+  --color-secondary: oklch(0.96 0 0);
+  --color-secondary-foreground: oklch(0.15 0 0);
+  --color-accent: oklch(0.96 0 0);
+  --color-accent-foreground: oklch(0.15 0 0);
+  --color-destructive: oklch(0.56 0.22 25);
+  --color-destructive-foreground: oklch(1 0 0);
+  --color-warning-bg: oklch(0.95 0.08 90);
+  --color-warning-border: oklch(0.82 0.16 90);
+  --color-warning-foreground: oklch(0.30 0.10 70);
+
+  /* Notification badge — brand-tonal instead of harsh red. Reads as "Aisie has
+     news for you" rather than "error" — semantically correct for unread count. */
+  --color-notification: oklch(0.44 0.22 295);
+  --color-notification-foreground: oklch(1 0 0);
+
+  /* Success — muted brand-adjacent green (less Christmas, more enterprise) */
+  --color-success: oklch(0.62 0.14 165);
+  --color-success-foreground: oklch(1 0 0);
+
+  /* Modal scrim — semi-transparent dark slate with violet undertone. Same
+     value works for light + dark modes because alpha keeps it tonal. */
+  --color-scrim: oklch(0.18 0.04 285 / 0.55);
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+  --radius: 8px;
+
+  /* Inter — designed-not-vanilla typeface used by Linear/Stripe/Notion.
+     `--font-inter` is injected by Next.js `next/font/google` in layout.tsx
+     and falls back to system stack if the font fails to load. */
+  --font-sans: var(--font-inter), -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --animate-mic-pulse: mic-pulse 1.4s ease-in-out infinite;
+  --animate-mic-fill:  mic-fill 1.6s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-mic-breath: mic-breath 4s ease-in-out infinite;
+  --animate-mic-spin: mic-spin 8s linear infinite;
+  --animate-mic-pulse-error: mic-pulse-error 1.5s ease-in-out infinite;
+  --animate-mic-ring-listening: mic-ring-listening 2.2s ease-out infinite;
+  --animate-mic-ring-user: mic-ring-user 0.9s ease-out infinite;
+  --animate-mic-ring-assistant: mic-ring-assistant 1.6s ease-out infinite;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0b0b0f;
-    --foreground: #f5f5f7;
-  }
+@keyframes mic-pulse {
+  0%, 100% { box-shadow: 0 16px 48px oklch(0.68 0.16 235 / 0.40); }
+  50%      { box-shadow: 0 16px 64px oklch(0.68 0.16 235 / 0.65); }
 }
 
-* {
+@keyframes mic-fill {
+  0%, 100% { transform: scaleX(0.04); opacity: 0.55; }
+  50%      { transform: scaleX(1.0);  opacity: 0.95; }
+}
+
+@keyframes mic-breath {
+  0%, 100% { transform: scale(1.0); }
+  50%      { transform: scale(1.02); }
+}
+
+@keyframes mic-spin {
+  0%   { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes mic-pulse-error {
+  0%, 100% { opacity: 1;    box-shadow: 0 16px 48px oklch(0.56 0.22 25 / 0.30); }
+  50%      { opacity: 0.88; box-shadow: 0 16px 60px oklch(0.56 0.22 25 / 0.55); }
+}
+
+/* Ring keyframes — three variants tuned per mode. Each ring is mic-button-
+   sized, scales OUTWARD beyond the button, fades to 0. Stagger via inline
+   animationDelay on each instance. */
+@keyframes mic-ring-listening {
+  0%   { transform: scale(0.96); opacity: 0.50; }
+  100% { transform: scale(1.45); opacity: 0;    }
+}
+
+@keyframes mic-ring-user {
+  0%   { transform: scale(0.98); opacity: 0.60; }
+  100% { transform: scale(1.30); opacity: 0;    }
+}
+
+@keyframes mic-ring-assistant {
+  0%   { transform: scale(0.96); opacity: 0.55; }
+  100% { transform: scale(1.60); opacity: 0;    }
+}
+
+.dark {
+  /* Violet-tinted dark surfaces — same 285° hue thread as the light theme
+     just inverted in lightness. Chroma kept very low (≤0.015) so the dark
+     surface reads as "professional near-black with brand undertone", not
+     "purple dark mode". */
+  --color-background: oklch(0.14 0.012 285);
+  --color-foreground: oklch(0.96 0.005 285);
+  --color-muted: oklch(0.22 0.012 285);
+  --color-muted-foreground: oklch(0.65 0.008 285);
+  --color-card: oklch(0.19 0.012 285);
+  --color-card-foreground: oklch(0.96 0.005 285);
+  --color-popover: oklch(0.19 0.012 285);
+  --color-popover-foreground: oklch(0.96 0.005 285);
+  --color-border: oklch(0.28 0.012 285);
+  --color-input: oklch(0.28 0.012 285);
+  --color-surface-subtle: oklch(0.17 0.012 285);
+  --color-secondary: oklch(0.22 0.012 285);
+  --color-secondary-foreground: oklch(0.96 0.005 285);
+  --color-accent: oklch(0.22 0.012 285);
+  --color-accent-foreground: oklch(0.96 0.005 285);
+  --color-warning-bg: oklch(0.30 0.05 80);
+  --color-warning-foreground: oklch(0.85 0.10 90);
+}
+
+*, *::before, *::after {
   box-sizing: border-box;
-  margin: 0;
-  padding: 0;
 }
 
 html, body {
   height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+/* Lock horizontal overflow so the mic button can scale beyond viewport edges
+   during user-speaking heartbeat without producing a horizontal scrollbar. */
+body {
+  overflow-x: hidden;
 }
 
 body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  color: var(--color-foreground);
+  background: var(--color-background);
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
