@@ -1,12 +1,17 @@
 'use client';
 
-import Link from 'next/link';
 import { use, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/lib/api-client';
 import type { Report, ReportTemplate, FieldSchema } from '@aisie/shared';
 import { formatDateTime } from '@/lib/format';
+import { BackLink } from '@/components/ui/back-link';
+import { PageHeader } from '@/components/ui/page-header';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 type FieldValue = string | number | boolean | null;
 
@@ -61,19 +66,19 @@ export default function AdminReportEditPage({
 
   if (loadingReport || loadingTemplate) {
     return (
-      <div>
-        <Link href="/reports" style={backLinkStyle}>← Raporlar</Link>
-        <p style={{ marginTop: 12, color: '#6b6b74', fontSize: 14 }}>Yükleniyor…</p>
-      </div>
+      <section>
+        <BackLink href="/reports" label="Raporlar" />
+        <p className="m-0 text-[14px] text-muted-foreground">Yükleniyor…</p>
+      </section>
     );
   }
 
   if (errorReport || errorTemplate || !report || !template || !draft) {
     return (
-      <div>
-        <Link href="/reports" style={backLinkStyle}>← Raporlar</Link>
-        <p style={{ marginTop: 12, color: '#dc2626', fontSize: 14 }}>Rapor yüklenemedi.</p>
-      </div>
+      <section>
+        <BackLink href="/reports" label="Raporlar" />
+        <p className="m-0 text-[14px] text-destructive">Rapor yüklenemedi.</p>
+      </section>
     );
   }
 
@@ -89,26 +94,28 @@ export default function AdminReportEditPage({
 
   return (
     <section>
-      <Link href="/reports" style={backLinkStyle}>← Raporlar</Link>
-
-      <header style={{ margin: '8px 0 12px' }}>
-        <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>{customerName}</h1>
-        <p style={{ margin: '4px 0 0', color: '#6b6b74', fontSize: 13 }}>
-          {template.name} · {report.user_name} · {formatDateTime(report.created_at)}
-        </p>
-      </header>
+      <BackLink href="/reports" label="Raporlar" />
+      <PageHeader
+        title={customerName}
+        subtitle={`${template.name} · ${report.user_name} · ${formatDateTime(report.created_at)}`}
+      />
 
       {report.is_email_sent && (
-        <div style={correctionNoteStyle}>
-          Bu rapor daha önce e-posta ile gönderildi
-          {(report.email_send_count ?? 0) >= 2 ? ` (${report.email_send_count} kez)` : ''}.
-          Düzenleme kaydedildikten 30 saniye sonra <strong>[Düzeltme]</strong> başlıklı bir e-posta otomatik gönderilir.
-        </div>
+        // Correction note — soft warning tone reminding admin that edits
+        // trigger a follow-up "[Düzeltme]" email 30s after save.
+        <Alert className="mb-4 border-processing-500/40 bg-processing-500/10 [&>svg]:hidden">
+          <AlertDescription className="text-foreground">
+            Bu rapor daha önce e-posta ile gönderildi
+            {(report.email_send_count ?? 0) >= 2 ? ` (${report.email_send_count} kez)` : ''}.
+            Düzenleme kaydedildikten 30 saniye sonra{' '}
+            <strong>[Düzeltme]</strong> başlıklı bir e-posta otomatik gönderilir.
+          </AlertDescription>
+        </Alert>
       )}
 
-      <div style={{ maxWidth: 680, display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div className="flex max-w-[680px] flex-col gap-4">
         {template.fields.map((field) => (
-          <FieldInput
+          <FieldEdit
             key={field.name}
             field={field}
             value={draft[field.name] ?? null}
@@ -118,25 +125,28 @@ export default function AdminReportEditPage({
       </div>
 
       {serverError && (
-        <p style={{ marginTop: 16, color: '#dc2626', fontSize: 13 }}>{serverError}</p>
+        <Alert variant="destructive" className="mt-4">
+          <AlertDescription>{serverError}</AlertDescription>
+        </Alert>
       )}
 
-      <div style={{ marginTop: 24, display: 'flex', gap: 10 }}>
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={update.isPending}
-          style={{ ...primaryBtnStyle, opacity: update.isPending ? 0.6 : 1 }}
-        >
+      <div className="mt-6 flex gap-3">
+        <Button onClick={handleSave} disabled={update.isPending}>
           {update.isPending ? 'Kaydediliyor…' : 'Kaydet'}
-        </button>
-        <Link href="/reports" style={ghostLinkStyle}>Vazgeç</Link>
+        </Button>
+        <Button
+          asChild
+          variant="ghost"
+          onClick={() => router.push('/reports')}
+        >
+          <span>Vazgeç</span>
+        </Button>
       </div>
     </section>
   );
 }
 
-function FieldInput({
+function FieldEdit({
   field,
   value,
   onChange,
@@ -145,53 +155,62 @@ function FieldInput({
   value: FieldValue;
   onChange: (v: FieldValue) => void;
 }) {
-  const label = (
-    <span style={{ fontSize: 13, color: '#6b6b74' }}>
-      {field.label}
-      {field.required && <span style={{ color: '#dc2626' }}> *</span>}
-    </span>
-  );
-
   if (field.type === 'boolean') {
     return (
-      <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <label className="flex items-center gap-3 rounded-md border border-border/60 bg-card px-3 py-2.5 transition-colors hover:bg-muted/30">
         <input
           type="checkbox"
           checked={value === true}
           onChange={(e) => onChange(e.target.checked)}
+          className="size-4 accent-brand-600"
         />
-        {label}
+        <span className="text-[13px] text-foreground">
+          {field.label}
+          {field.required && <span className="ml-1 text-destructive">*</span>}
+        </span>
       </label>
     );
   }
 
   if (field.type === 'single-select') {
     return (
-      <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {label}
+      <div className="flex flex-col gap-1.5">
+        <Label className="text-[12.5px] text-muted-foreground">
+          {field.label}
+          {field.required && <span className="ml-1 text-destructive">*</span>}
+        </Label>
         <select
           value={value === null || value === undefined ? '' : String(value)}
           onChange={(e) => onChange(e.target.value || null)}
-          style={inputStyle}
+          className="h-9 rounded-md border border-input bg-card px-3 text-[14px] text-foreground transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <option value="">— seçin —</option>
           {(field.options ?? []).map((opt) => (
-            <option key={opt} value={opt}>{opt}</option>
+            <option key={opt} value={opt}>
+              {opt}
+            </option>
           ))}
         </select>
-      </label>
+      </div>
     );
   }
 
   const inputType =
-    field.type === 'number' ? 'number' :
-    field.type === 'date'   ? 'date'   :
-    field.type === 'time'   ? 'time'   : 'text';
+    field.type === 'number'
+      ? 'number'
+      : field.type === 'date'
+        ? 'date'
+        : field.type === 'time'
+          ? 'time'
+          : 'text';
 
   return (
-    <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      {label}
-      <input
+    <div className="flex flex-col gap-1.5">
+      <Label className="text-[12.5px] text-muted-foreground">
+        {field.label}
+        {field.required && <span className="ml-1 text-destructive">*</span>}
+      </Label>
+      <Input
         type={inputType}
         value={value === null || value === undefined ? '' : String(value)}
         onChange={(e) => {
@@ -199,36 +218,7 @@ function FieldInput({
           if (field.type === 'number') onChange(raw === '' ? null : Number(raw));
           else onChange(raw === '' ? null : raw);
         }}
-        style={inputStyle}
       />
-    </label>
+    </div>
   );
 }
-
-const backLinkStyle: React.CSSProperties = {
-  display: 'inline-block', padding: '6px 0',
-  fontSize: 13, color: '#7c3aed', textDecoration: 'none', fontWeight: 500,
-};
-const inputStyle: React.CSSProperties = {
-  border: '1px solid #d4d4d8', borderRadius: 8,
-  padding: '8px 12px', fontSize: 14, background: '#fff', outline: 'none',
-};
-const primaryBtnStyle: React.CSSProperties = {
-  background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 8,
-  padding: '10px 18px', fontSize: 14, fontWeight: 600, cursor: 'pointer',
-};
-const ghostLinkStyle: React.CSSProperties = {
-  background: 'transparent', color: '#6b6b74', border: 'none',
-  padding: '10px 16px', fontSize: 14, cursor: 'pointer', textDecoration: 'none',
-  display: 'inline-flex', alignItems: 'center',
-};
-const correctionNoteStyle: React.CSSProperties = {
-  marginBottom: 18,
-  padding: '10px 14px',
-  borderRadius: 8,
-  background: '#fef3c7',
-  border: '1px solid #fde68a',
-  color: '#92400e',
-  fontSize: 13,
-  lineHeight: 1.45,
-};

@@ -2,26 +2,25 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { ChevronDown } from 'lucide-react';
 import { apiFetch } from '@/lib/api-client';
 import { useSessionStore } from '@/lib/auth/session-store';
 import { useActingCompanyStore } from '@/lib/auth/acting-company-store';
+import { cn } from '@/lib/utils';
 
 // Org picker for SUPER_ADMIN. Renders a button showing the current acting
-// company (own company name when no override is active); clicking opens a
-// dropdown of every company the GET /companies endpoint returns. Picking a
-// company sets X-Acting-Company-Id for every subsequent apiFetch call.
+// company (own company when no override is active); clicking opens a list
+// of every company GET /companies returns. Picking a company sets
+// X-Acting-Company-Id for every subsequent apiFetch.
 //
-// COMPANY_ADMIN never sees this widget — Sidebar omits it based on role,
-// AND the underlying GET /companies endpoint would 403 anyway (defense in
-// depth).
+// COMPANY_ADMIN never sees this widget — Sidebar omits it based on role, and
+// GET /companies would 403 anyway (defense in depth).
 //
 // Platform-user case: SUPER_ADMINs bound to the internal AISIE Platform
-// company (companyName === PLATFORM_COMPANY_NAME) have no meaningful "own
-// company" — that row is just an auth host. Picker defaults to an unselected
-// state ("Şirket seç") and the dashboard renders an empty CTA until the user
-// picks an acting company. Backend mirrors this by omitting the platform row
-// from /companies, so the user never accidentally selects their own auth
-// host and lands on a blank dashboard.
+// company have no meaningful "own company" — the picker defaults to an
+// unselected state and the dashboard renders an empty CTA until a tenant is
+// picked. Backend omits the platform row from /companies so the user never
+// accidentally selects their auth host.
 
 const PLATFORM_COMPANY_NAME = 'AISIE Platform';
 
@@ -45,8 +44,6 @@ export function OrgPicker() {
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
 
-  // Close on click-outside / Escape — keep the picker out of the way once
-  // a selection is made.
   useEffect(() => {
     if (!open) return;
     const onClick = (e: MouseEvent) => {
@@ -71,9 +68,6 @@ export function OrgPicker() {
     staleTime: 5 * 60_000,
   });
 
-  // Effective selection: explicit override OR fall back to own company.
-  // For platform users, own company is not a valid fallback — leave the
-  // selection empty until the user explicitly picks a tenant.
   const isPlatformUser = ownCompanyName === PLATFORM_COMPANY_NAME;
   const selectedId = actingCompanyId ?? (isPlatformUser ? null : ownCompanyId);
   const selectedName =
@@ -81,83 +75,60 @@ export function OrgPicker() {
 
   const pick = (row: CompanyRow | null) => {
     if (row === null || row.public_id === ownCompanyId) {
-      // Picking own company clears the override entirely — no acting header
-      // is sent, downstream sees the SUPER_ADMIN's own JWT-claimed company.
       setActingCompany(null, null);
     } else {
       setActingCompany(row.public_id, row.name);
     }
     setOpen(false);
-    // Every query result is scoped to the previous acting company; nuke them
-    // so the new selection causes a refetch instead of stale data flicker.
     queryClient.invalidateQueries();
   };
 
   return (
-    <div style={{ position: 'relative' }}>
+    <div className="relative">
       <button
         ref={buttonRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="listbox"
         aria-expanded={open}
-        style={{
-          width: '100%',
-          textAlign: 'left',
-          padding: '8px 10px',
-          background: actingCompanyId ? '#fef3c7' : '#f5f3ff',
-          border: `1px solid ${actingCompanyId ? '#f59e0b' : '#e5e7eb'}`,
-          borderRadius: 8,
-          fontSize: 12,
-          color: '#0b0b0f',
-          cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 6,
-        }}
+        className={cn(
+          'flex w-full items-center justify-between gap-1.5 rounded-md border px-2.5 py-2 text-left text-[12px] transition-colors',
+          actingCompanyId
+            ? 'border-processing-500/40 bg-processing-500/10 text-foreground hover:bg-processing-500/15'
+            : 'border-border bg-brand-50 text-foreground hover:bg-brand-100 dark:bg-brand-900/30 dark:hover:bg-brand-900/50',
+        )}
       >
-        <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-          <span style={{ fontSize: 10, color: '#6b6b74', textTransform: 'uppercase', letterSpacing: 0.4 }}>
+        <span className="flex min-w-0 flex-col">
+          <span className="text-[10px] font-medium uppercase tracking-[0.4px] text-muted-foreground">
             {actingCompanyId
               ? 'Şirket seçimi'
               : isPlatformUser
                 ? 'Şirket seçilmedi'
                 : 'Kendi şirketin'}
           </span>
-          <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <span className="truncate font-semibold">
             {selectedName ?? 'Şirket seç'}
           </span>
         </span>
-        <span style={{ fontSize: 11, color: '#6b6b74' }}>▾</span>
+        <ChevronDown className="size-3.5 text-muted-foreground" aria-hidden />
       </button>
 
       {open && (
         <div
           ref={popoverRef}
           role="listbox"
-          style={{
-            position: 'absolute',
-            top: 'calc(100% + 4px)',
-            left: 0,
-            right: 0,
-            background: '#ffffff',
-            border: '1px solid #e5e7eb',
-            borderRadius: 8,
-            boxShadow: '0 12px 28px rgba(0,0,0,0.18)',
-            zIndex: 50,
-            maxHeight: 320,
-            overflowY: 'auto',
-          }}
+          className="absolute left-0 right-0 top-[calc(100%+4px)] z-50 max-h-80 overflow-y-auto rounded-md border border-border bg-popover shadow-lg"
         >
           {isLoading && (
-            <p style={{ margin: 0, padding: 12, fontSize: 12, color: '#6b6b74' }}>Yükleniyor…</p>
+            <p className="m-0 px-3 py-3 text-[12px] text-muted-foreground">Yükleniyor…</p>
           )}
           {isError && (
-            <p style={{ margin: 0, padding: 12, fontSize: 12, color: '#dc2626' }}>Şirket listesi alınamadı.</p>
+            <p className="m-0 px-3 py-3 text-[12px] text-destructive">
+              Şirket listesi alınamadı.
+            </p>
           )}
           {!isLoading && !isError && companies.length === 0 && (
-            <p style={{ margin: 0, padding: 12, fontSize: 12, color: '#6b6b74' }}>Şirket yok.</p>
+            <p className="m-0 px-3 py-3 text-[12px] text-muted-foreground">Şirket yok.</p>
           )}
           {companies.map((row) => {
             const isSelected = row.public_id === selectedId;
@@ -169,29 +140,27 @@ export function OrgPicker() {
                 role="option"
                 aria-selected={isSelected}
                 onClick={() => pick(row)}
-                style={{
-                  width: '100%',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'flex-start',
-                  gap: 2,
-                  padding: '10px 12px',
-                  background: isSelected ? '#f5f3ff' : '#fff',
-                  border: 'none',
-                  borderBottom: '1px solid #f3f4f6',
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                }}
+                className={cn(
+                  'flex w-full flex-col items-start gap-0.5 border-b border-border/40 px-3 py-2.5 text-left transition-colors last:border-b-0',
+                  isSelected
+                    ? 'bg-brand-50 dark:bg-brand-900/40'
+                    : 'bg-popover hover:bg-muted',
+                )}
               >
-                <span style={{ fontSize: 13, fontWeight: isSelected ? 600 : 500, color: '#0b0b0f' }}>
+                <span
+                  className={cn(
+                    'text-[13px] text-foreground',
+                    isSelected ? 'font-semibold' : 'font-medium',
+                  )}
+                >
                   {row.name}
                   {isOwn && (
-                    <span style={{ marginLeft: 6, fontSize: 10, color: '#7c3aed', textTransform: 'uppercase' }}>
+                    <span className="ml-1.5 text-[10px] uppercase tracking-[0.4px] text-brand-600">
                       kendi
                     </span>
                   )}
                 </span>
-                <span style={{ fontSize: 11, color: '#6b6b74' }}>{row.code}</span>
+                <span className="text-[11px] text-muted-foreground">{row.code}</span>
               </button>
             );
           })}

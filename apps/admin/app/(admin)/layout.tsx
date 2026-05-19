@@ -28,32 +28,24 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   if (!initialized) {
     return (
-      <div style={{ minHeight: '100dvh', display: 'grid', placeItems: 'center' }}>
-        <p style={{ color: '#6b6b74', fontSize: 14 }}>Yükleniyor…</p>
+      <div className="grid min-h-dvh place-items-center">
+        <p className="text-sm text-muted-foreground">Yükleniyor…</p>
       </div>
     );
   }
 
   if (!accessToken || (role !== 'COMPANY_ADMIN' && role !== 'SUPER_ADMIN')) {
     return (
-      <div style={{ minHeight: '100dvh', display: 'grid', placeItems: 'center' }}>
-        <p style={{ color: '#6b6b74', fontSize: 14 }}>Yetki kontrol ediliyor…</p>
+      <div className="grid min-h-dvh place-items-center">
+        <p className="text-sm text-muted-foreground">Yetki kontrol ediliyor…</p>
       </div>
     );
   }
 
   return (
-    <div style={{ display: 'flex', minHeight: '100dvh' }}>
+    <div className="flex min-h-dvh">
       <Sidebar />
-      <main
-        style={{
-          flex: 1,
-          padding: 32,
-          minWidth: 0,
-        }}
-      >
-        {children}
-      </main>
+      <main className="min-w-0 flex-1 p-8">{children}</main>
     </div>
   );
 }

@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/lib/api-client';
 import { TemplateForm, emptyField, type TemplateFormValue } from '@/components/TemplateForm';
+import { BackLink } from '@/components/ui/back-link';
+import { PageHeader } from '@/components/ui/page-header';
 
 // New-template page. Validation lives in TemplateForm; server re-validates on
 // save. On success we invalidate the list query so the new template appears
@@ -27,12 +29,13 @@ export default function NewTemplatePage() {
             type: f.type,
             description: f.description.trim() || undefined,
             required: f.required,
-            options: f.type === 'single-select'
-              ? f.options.map((o) => o.trim()).filter(Boolean)
-              : undefined,
-            // Pass through only when an entity marker is set. Sending null
-            // is fine for the backend, but undefined is cleaner — the body
-            // contains exactly the keys the admin chose.
+            options:
+              f.type === 'single-select'
+                ? f.options.map((o) => o.trim()).filter(Boolean)
+                : undefined,
+            // Pass through only when an entity marker is set. Undefined is
+            // cleaner than null on the wire — body contains exactly the keys
+            // the admin chose.
             entity_type: f.entityType ?? undefined,
           })),
         },
@@ -43,7 +46,8 @@ export default function NewTemplatePage() {
     },
     onError: (err) => {
       // Surface the server-side error payload — usually validation_errors[].
-      const detail = (err as { body?: { detail?: { validation_errors?: string[] } } }).body?.detail;
+      const detail = (err as { body?: { detail?: { validation_errors?: string[] } } })
+        .body?.detail;
       if (detail?.validation_errors?.length) {
         setServerError(detail.validation_errors.join(' • '));
       } else {
@@ -53,11 +57,9 @@ export default function NewTemplatePage() {
   });
 
   return (
-    <section style={{ maxWidth: 760 }}>
-      <header style={{ marginBottom: 20 }}>
-        <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>Yeni Şablon</h1>
-        <p style={{ margin: '4px 0 0', color: '#6b6b74', fontSize: 13 }}>Şablon oluştur ve alanları tanımla.</p>
-      </header>
+    <section className="mx-auto max-w-4xl">
+      <BackLink href="/templates" label="Şablonlar" />
+      <PageHeader title="Yeni Şablon" subtitle="Şablon oluştur ve alanları tanımla." />
 
       <TemplateForm
         initial={{ baseId: '', name: '', fields: [emptyField()] }}
@@ -65,7 +67,10 @@ export default function NewTemplatePage() {
         submitting={create.isPending}
         serverError={serverError}
         onCancel={() => router.push('/templates')}
-        onSubmit={(value) => { setServerError(null); create.mutate(value); }}
+        onSubmit={(value) => {
+          setServerError(null);
+          create.mutate(value);
+        }}
       />
     </section>
   );

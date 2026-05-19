@@ -1,6 +1,12 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { ChevronDown, ChevronUp, Plus, X } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 // Shared form for both Create (new/page.tsx) and Edit (edit/page.tsx). Holds
 // the field list as local React state, computes canonical-name previews on
@@ -8,15 +14,14 @@ import { useMemo, useState } from 'react';
 // (so Save stays disabled until the payload is clean).
 //
 // Drag-and-drop reorder is deliberately NOT included here — pilot UI uses
-// up/down chevron buttons. Adding @dnd-kit is a Phase 8 polish item.
+// up/down chevron buttons. Adding @dnd-kit is a later polish item.
 
 export type FieldType = 'string' | 'number' | 'date' | 'time' | 'boolean' | 'single-select';
 
-// `entityType` maps to the backend FieldSchema.entity_type marker. The UI
-// only exposes the "followup_date" variant via a checkbox (rendered when
-// type === 'date'); other entity_type values (e.g. "customer") are reserved
-// for future template semantics and are not yet user-editable. null means
-// no marker — plain field, no server-side side effects.
+// `entityType` maps to the backend FieldSchema.entity_type marker. UI only
+// exposes the "followup_date" variant via a checkbox (rendered when type is
+// 'date'); other entity_type values are reserved for future template
+// semantics and not yet user-editable. null = no marker (plain field).
 export type FieldEntityType = 'followup_date' | null;
 
 export type DraftField = {
@@ -24,7 +29,7 @@ export type DraftField = {
   type: FieldType;
   description: string;
   required: boolean;
-  options: string[]; // only used when type === 'single-select'
+  options: string[];
   entityType: FieldEntityType;
 };
 
@@ -69,13 +74,17 @@ export function TemplateForm({
   const [name, setName] = useState(initial.name);
   const [fields, setFields] = useState<DraftField[]>(initial.fields);
 
-  const errors = useMemo(() => validate({ baseId, name, fields }, isEdit), [baseId, name, fields, isEdit]);
+  const errors = useMemo(
+    () => validate({ baseId, name, fields }, isEdit),
+    [baseId, name, fields, isEdit],
+  );
   const valid = errors.length === 0;
 
   const setField = (i: number, patch: Partial<DraftField>) => {
     setFields((prev) => prev.map((f, idx) => (idx === i ? { ...f, ...patch } : f)));
   };
-  const removeField = (i: number) => setFields((prev) => prev.filter((_, idx) => idx !== i));
+  const removeField = (i: number) =>
+    setFields((prev) => prev.filter((_, idx) => idx !== i));
   const moveField = (i: number, dir: -1 | 1) => {
     const target = i + dir;
     if (target < 0 || target >= fields.length) return;
@@ -95,34 +104,42 @@ export function TemplateForm({
         if (!valid || submitting) return;
         onSubmit({ baseId: baseId.trim(), name: name.trim(), fields });
       }}
-      style={{ display: 'flex', flexDirection: 'column', gap: 20 }}
+      className="flex flex-col gap-5"
     >
-      <section style={cardStyle}>
-        <h2 style={sectionTitleStyle}>Şablon bilgileri</h2>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <Field label="Ad" required help="Şablonun listede görünecek adı. Sistem buradan otomatik bir kimlik üretir.">
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="ör. CRM Aktivite Raporu"
-              style={inputStyle}
-            />
-          </Field>
-        </div>
+      <section className="rounded-xl border border-border/60 bg-card p-5 shadow-sm">
+        <h2 className="mb-3 text-[14px] font-bold text-foreground">Şablon bilgileri</h2>
+        <FormField
+          label="Ad"
+          required
+          help="Şablonun listede görünecek adı. Sistem buradan otomatik bir kimlik üretir."
+        >
+          <Input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="ör. CRM Aktivite Raporu"
+          />
+        </FormField>
       </section>
 
-      <section style={cardStyle}>
-        <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <h2 style={sectionTitleStyle}>Alanlar ({fields.length})</h2>
-          <button type="button" onClick={addField} style={secondaryBtnStyle}>+ Alan Ekle</button>
+      <section className="rounded-xl border border-border/60 bg-card p-5 shadow-sm">
+        <header className="mb-3 flex items-center justify-between">
+          <h2 className="m-0 text-[14px] font-bold text-foreground">
+            Alanlar ({fields.length})
+          </h2>
+          <Button type="button" variant="outline" size="sm" onClick={addField} className="gap-1.5">
+            <Plus className="size-3.5" aria-hidden />
+            Alan Ekle
+          </Button>
         </header>
 
         {fields.length === 0 && (
-          <p style={mutedStyle}>Henüz alan yok. "Alan Ekle" ile başla.</p>
+          <p className="m-0 text-[13px] text-muted-foreground">
+            Henüz alan yok. "Alan Ekle" ile başla.
+          </p>
         )}
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div className="flex flex-col gap-3">
           {fields.map((field, i) => (
             <FieldRow
               key={i}
@@ -139,39 +156,49 @@ export function TemplateForm({
       </section>
 
       {errors.length > 0 && (
-        <div style={{ ...cardStyle, borderColor: '#fca5a5', background: '#fef2f2' }}>
-          <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#991b1b' }}>Düzeltmen gereken noktalar</p>
-          <ul style={{ margin: '6px 0 0 20px', padding: 0, fontSize: 13, color: '#7f1d1d' }}>
-            {errors.map((err, i) => (<li key={i} style={{ margin: '2px 0' }}>{err}</li>))}
-          </ul>
-        </div>
+        <Alert variant="destructive">
+          <AlertDescription>
+            <p className="m-0 font-semibold">Düzeltmen gereken noktalar</p>
+            <ul className="m-0 mt-1 pl-5">
+              {errors.map((err, i) => (
+                <li key={i} className="my-0.5">
+                  {err}
+                </li>
+              ))}
+            </ul>
+          </AlertDescription>
+        </Alert>
       )}
 
       {serverError && (
-        <div style={{ ...cardStyle, borderColor: '#fca5a5', background: '#fef2f2' }}>
-          <p style={{ margin: 0, fontSize: 13, color: '#991b1b' }}>Sunucu: {serverError}</p>
-        </div>
+        <Alert variant="destructive">
+          <AlertDescription>Sunucu: {serverError}</AlertDescription>
+        </Alert>
       )}
 
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-        <button type="button" onClick={onCancel} style={ghostBtnStyle}>İptal</button>
-        <button
-          type="submit"
-          disabled={!valid || submitting}
-          style={{ ...primaryBtnStyle, opacity: valid && !submitting ? 1 : 0.5, cursor: valid && !submitting ? 'pointer' : 'not-allowed' }}
-        >
+      <div className="flex justify-end gap-3">
+        <Button type="button" variant="ghost" onClick={onCancel}>
+          İptal
+        </Button>
+        <Button type="submit" disabled={!valid || submitting}>
           {submitting ? 'Kaydediliyor…' : isEdit ? 'Güncelle' : 'Oluştur'}
-        </button>
+        </Button>
       </div>
     </form>
   );
 }
 
 function FieldRow({
-  index, total, field,
-  onChange, onRemove, onMoveUp, onMoveDown,
+  index,
+  total,
+  field,
+  onChange,
+  onRemove,
+  onMoveUp,
+  onMoveDown,
 }: {
-  index: number; total: number;
+  index: number;
+  total: number;
   field: DraftField;
   onChange: (patch: Partial<DraftField>) => void;
   onRemove: () => void;
@@ -179,88 +206,126 @@ function FieldRow({
   onMoveDown: () => void;
 }) {
   return (
-    <div style={{ ...cardStyle, padding: 14, background: '#fcfcfd', boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}>
-      <header style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-        <span style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af' }}>#{index + 1}</span>
-        <span style={{ flex: 1 }} />
-        <button type="button" onClick={onMoveUp} disabled={index === 0} style={iconBtnStyle} aria-label="Yukarı taşı">▲</button>
-        <button type="button" onClick={onMoveDown} disabled={index === total - 1} style={iconBtnStyle} aria-label="Aşağı taşı">▼</button>
-        <button type="button" onClick={onRemove} style={{ ...iconBtnStyle, color: '#dc2626' }} aria-label="Alanı sil">✕</button>
+    <div className="rounded-xl border border-border/60 bg-muted/20 p-4">
+      <header className="mb-3 flex items-center gap-2">
+        <span className="text-[11px] font-bold text-muted-foreground/70">
+          #{index + 1}
+        </span>
+        <span className="flex-1" />
+        <Button
+          type="button"
+          variant="outline"
+          size="icon-xs"
+          onClick={onMoveUp}
+          disabled={index === 0}
+          aria-label="Yukarı taşı"
+        >
+          <ChevronUp className="size-3" aria-hidden />
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon-xs"
+          onClick={onMoveDown}
+          disabled={index === total - 1}
+          aria-label="Aşağı taşı"
+        >
+          <ChevronDown className="size-3" aria-hidden />
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon-xs"
+          onClick={onRemove}
+          aria-label="Alanı sil"
+          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+        >
+          <X className="size-3" aria-hidden />
+        </Button>
       </header>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-        <Field label="Etiket" required>
-          <input
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <FormField label="Etiket" required>
+          <Input
             type="text"
             value={field.label}
             onChange={(e) => onChange({ label: e.target.value })}
             placeholder="Müşteri Adı"
-            style={inputStyle}
           />
-        </Field>
-        <Field label="Tip" required>
+        </FormField>
+        <FormField label="Tip" required>
           <select
             value={field.type}
             onChange={(e) => {
               const nextType = e.target.value as FieldType;
-              // When the admin switches away from date, drop any followup
-              // marker; entity_type=followup_date only makes sense on dates.
+              // When admin switches away from date, drop any followup marker;
+              // entity_type=followup_date only makes sense on dates.
               const patch: Partial<DraftField> = { type: nextType };
               if (nextType !== 'date' && field.entityType === 'followup_date') {
                 patch.entityType = null;
               }
               onChange(patch);
             }}
-            style={inputStyle}
+            className="h-9 rounded-md border border-input bg-card px-3 text-[14px] text-foreground transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {(Object.keys(FIELD_TYPE_LABELS) as FieldType[]).map((t) => (
-              <option key={t} value={t}>{FIELD_TYPE_LABELS[t]}</option>
+              <option key={t} value={t}>
+                {FIELD_TYPE_LABELS[t]}
+              </option>
             ))}
           </select>
-        </Field>
-        <Field label="Zorunlu">
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 0', fontSize: 13 }}>
+        </FormField>
+        <FormField label="Zorunlu">
+          <label className="flex h-9 items-center gap-2 text-[13px] text-foreground">
             <input
               type="checkbox"
               checked={field.required}
               onChange={(e) => onChange({ required: e.target.checked })}
+              className="size-4 accent-brand-600"
             />
             Bu alan dolmadan rapor tamamlanmasın
           </label>
-        </Field>
+        </FormField>
         {field.type === 'date' && (
-          <Field label="Takip tarihi mi?" help="Seçildiğinde ajandaya girilen tarih için hatırlatma oluşturulur.">
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 0', fontSize: 13 }}>
+          <FormField
+            label="Takip tarihi mi?"
+            help="Seçildiğinde ajandaya girilen tarih için hatırlatma oluşturulur."
+          >
+            <label className="flex h-9 items-center gap-2 text-[13px] text-foreground">
               <input
                 type="checkbox"
                 checked={field.entityType === 'followup_date'}
                 onChange={(e) =>
                   onChange({ entityType: e.target.checked ? 'followup_date' : null })
                 }
+                className="size-4 accent-brand-600"
               />
               Evet, takip tarihi
             </label>
-          </Field>
+          </FormField>
         )}
-        <div style={{ gridColumn: '1 / -1' }}>
-          <Field label="Açıklama" help="Yapay Zeka'nın bu alanı doğru doldurabilmesi için ipucu.">
+        <div className="sm:col-span-2">
+          <FormField
+            label="Açıklama"
+            help="Yapay Zeka'nın bu alanı doğru doldurabilmesi için ipucu."
+          >
             <textarea
               value={field.description}
               onChange={(e) => onChange({ description: e.target.value })}
               placeholder="Bu alana hangi tür bilgi yazılacağı nasıl tahmin edilebilir?"
               rows={2}
-              style={{ ...inputStyle, resize: 'vertical' }}
+              className="w-full min-w-0 resize-y rounded-md border border-input bg-transparent px-3 py-1.5 text-[14px] shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-input/30"
             />
-          </Field>
+          </FormField>
         </div>
         {field.type === 'single-select' && (
-          <div style={{ gridColumn: '1 / -1' }}>
-            <Field label="Seçenekler" required help="En az 2 seçenek girilmeli.">
+          <div className="sm:col-span-2">
+            <FormField label="Seçenekler" required help="En az 2 seçenek girilmeli.">
               <OptionsEditor
                 options={field.options}
                 onChange={(opts) => onChange({ options: opts })}
               />
-            </Field>
+            </FormField>
           </div>
         )}
       </div>
@@ -268,40 +333,74 @@ function FieldRow({
   );
 }
 
-function OptionsEditor({ options, onChange }: { options: string[]; onChange: (opts: string[]) => void }) {
-  const set = (i: number, v: string) => onChange(options.map((o, idx) => (idx === i ? v : o)));
+function OptionsEditor({
+  options,
+  onChange,
+}: {
+  options: string[];
+  onChange: (opts: string[]) => void;
+}) {
+  const set = (i: number, v: string) =>
+    onChange(options.map((o, idx) => (idx === i ? v : o)));
   const add = () => onChange([...options, '']);
   const remove = (i: number) => onChange(options.filter((_, idx) => idx !== i));
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+    <div className="flex flex-col gap-2">
       {options.map((opt, i) => (
-        <div key={i} style={{ display: 'flex', gap: 6 }}>
-          <input
+        <div key={i} className="flex gap-2">
+          <Input
             type="text"
             value={opt}
             onChange={(e) => set(i, e.target.value)}
             placeholder={`Seçenek ${i + 1}`}
-            style={{ ...inputStyle, flex: 1 }}
           />
-          <button type="button" onClick={() => remove(i)} style={iconBtnStyle} aria-label="Seçeneği sil">✕</button>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon-sm"
+            onClick={() => remove(i)}
+            aria-label="Seçeneği sil"
+          >
+            <X className="size-3.5" aria-hidden />
+          </Button>
         </div>
       ))}
-      <button type="button" onClick={add} style={{ ...secondaryBtnStyle, alignSelf: 'flex-start' }}>+ Seçenek</button>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={add}
+        className="self-start gap-1.5"
+      >
+        <Plus className="size-3.5" aria-hidden />
+        Seçenek
+      </Button>
     </div>
   );
 }
 
-function Field({
-  label, help, required, children,
-}: { label: string; help?: string; required?: boolean; children: React.ReactNode }) {
+function FormField({
+  label,
+  help,
+  required,
+  children,
+}: {
+  label: string;
+  help?: string;
+  required?: boolean;
+  children: React.ReactNode;
+}) {
   return (
-    <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <span style={{ fontSize: 12, fontWeight: 600, color: '#4b5563' }}>
-        {label}{required && <span style={{ color: '#dc2626', marginLeft: 4 }}>*</span>}
-      </span>
+    <div className="flex flex-col gap-1.5">
+      <Label className="text-[12.5px] font-semibold text-foreground/80">
+        {label}
+        {required && <span className="ml-1 text-destructive">*</span>}
+      </Label>
       {children}
-      {help && <span style={{ fontSize: 11, color: '#6b6b74' }}>{help}</span>}
-    </label>
+      {help && (
+        <span className="text-[11px] text-muted-foreground">{help}</span>
+      )}
+    </div>
   );
 }
 
@@ -318,44 +417,14 @@ function validate(v: TemplateFormValue, _isEdit: boolean): string[] {
     if (!f.label.trim()) errors.push(`${pos}: etiket boş olamaz.`);
     if (f.type === 'single-select') {
       const cleaned = f.options.map((o) => o.trim()).filter(Boolean);
-      if (cleaned.length < 2) errors.push(`${pos}: tek seçim için en az 2 seçenek gerekli.`);
-      if (new Set(cleaned).size !== cleaned.length) errors.push(`${pos}: seçenekler benzersiz olmalı.`);
+      if (cleaned.length < 2)
+        errors.push(`${pos}: tek seçim için en az 2 seçenek gerekli.`);
+      if (new Set(cleaned).size !== cleaned.length)
+        errors.push(`${pos}: seçenekler benzersiz olmalı.`);
     }
     if (f.required) hasRequired = true;
   });
-  if (v.fields.length > 0 && !hasRequired) errors.push('Şablonda en az 1 zorunlu alan olmalı.');
+  if (v.fields.length > 0 && !hasRequired)
+    errors.push('Şablonda en az 1 zorunlu alan olmalı.');
   return errors;
 }
-
-// ---- styles -----------------------------------------------------------------
-
-const cardStyle: React.CSSProperties = {
-  background: '#fff',
-  border: '1px solid #e5e7eb',
-  borderRadius: 12,
-  padding: 20,
-};
-const sectionTitleStyle: React.CSSProperties = {
-  fontSize: 14, fontWeight: 700, color: '#0b0b0f', margin: '0 0 12px',
-};
-const inputStyle: React.CSSProperties = {
-  width: '100%', boxSizing: 'border-box', padding: '8px 10px',
-  border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, color: '#0b0b0f', background: '#fff',
-};
-const primaryBtnStyle: React.CSSProperties = {
-  background: '#7c3aed', color: '#fff', border: 'none',
-  borderRadius: 8, padding: '10px 18px', fontSize: 13, fontWeight: 600,
-};
-const secondaryBtnStyle: React.CSSProperties = {
-  background: '#fff', color: '#4b5563', border: '1px solid #e5e7eb',
-  borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 500, cursor: 'pointer',
-};
-const ghostBtnStyle: React.CSSProperties = {
-  background: 'transparent', color: '#6b6b74', border: 'none',
-  padding: '10px 14px', fontSize: 13, cursor: 'pointer',
-};
-const iconBtnStyle: React.CSSProperties = {
-  background: '#fff', border: '1px solid #e5e7eb', borderRadius: 6,
-  width: 28, height: 28, padding: 0, fontSize: 12, color: '#4b5563', cursor: 'pointer',
-};
-const mutedStyle: React.CSSProperties = { margin: 0, fontSize: 13, color: '#6b6b74' };

@@ -7,6 +7,10 @@ import { loginRequestSchema, loginResponseSchema, type LoginResponse } from '@ai
 import { apiFetch, ApiError } from '@/lib/api-client';
 import { useSessionStore } from '@/lib/auth/session-store';
 import { PasswordInput } from '@/components/PasswordInput';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 export default function AdminLoginPage() {
   const router = useRouter();
@@ -28,9 +32,9 @@ export default function AdminLoginPage() {
     },
     onSuccess: (data) => {
       setSession({ accessToken: data.accessToken, refreshToken: data.refreshToken, user: data.user });
-      // session-store derives the role from the JWT claim itself; we read
-      // it back here so only admins (SUPER_ADMIN or COMPANY_ADMIN) can reach
-      // the admin area. Other roles see a friendly forbidden message.
+      // session-store derives the role from the JWT claim itself; only admins
+      // (SUPER_ADMIN or COMPANY_ADMIN) can reach the admin area. Other roles
+      // see a friendly forbidden message.
       const role = useSessionStore.getState().role;
       if (role !== 'COMPANY_ADMIN' && role !== 'SUPER_ADMIN') {
         useSessionStore.getState().clearSession();
@@ -56,18 +60,16 @@ export default function AdminLoginPage() {
         setRoleError(null);
         login.mutate();
       }}
-      style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
+      className="flex flex-col gap-4"
     >
-      <h1 style={{ fontSize: 26, fontWeight: 700, color: '#7c3aed', textAlign: 'center', margin: 0 }}>
-        aisie admin
-      </h1>
-      <h2 style={{ fontSize: 16, textAlign: 'center', color: '#0b0b0f', fontWeight: 500, margin: 0 }}>
-        Yönetim Paneli Girişi
-      </h2>
+      <div className="flex flex-col items-center gap-1">
+        <h1 className="m-0 text-[26px] font-bold text-brand-600">aisie admin</h1>
+        <h2 className="m-0 text-[15px] font-medium text-foreground">Yönetim Paneli Girişi</h2>
+      </div>
 
-      <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <span style={{ fontSize: 13, color: '#6b6b74' }}>E-posta</span>
-        <input
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="email" className="text-[13px] text-muted-foreground">E-posta</Label>
+        <Input
           type="email"
           name="email"
           id="email"
@@ -75,12 +77,11 @@ export default function AdminLoginPage() {
           required
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          style={inputStyle}
         />
-      </label>
+      </div>
 
-      <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <span style={{ fontSize: 13, color: '#6b6b74' }}>Şifre</span>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="password" className="text-[13px] text-muted-foreground">Şifre</Label>
         <PasswordInput
           name="password"
           id="password"
@@ -89,36 +90,17 @@ export default function AdminLoginPage() {
           value={password}
           onChange={setPassword}
         />
-      </label>
+      </div>
 
       {errorMessage && (
-        <p role="alert" style={{ color: '#dc2626', fontSize: 13, margin: 0 }}>
-          {errorMessage}
-        </p>
+        <Alert variant="destructive">
+          <AlertDescription>{errorMessage}</AlertDescription>
+        </Alert>
       )}
 
-      <button type="submit" disabled={login.isPending} style={buttonStyle}>
+      <Button type="submit" disabled={login.isPending} className="mt-1 h-10">
         {login.isPending ? 'Giriş yapılıyor…' : 'Giriş Yap'}
-      </button>
+      </Button>
     </form>
   );
 }
-
-const inputStyle: React.CSSProperties = {
-  border: '1px solid #d4d4d8',
-  borderRadius: 8,
-  padding: '10px 12px',
-  fontSize: 15,
-  outline: 'none',
-};
-
-const buttonStyle: React.CSSProperties = {
-  background: '#7c3aed',
-  color: '#fff',
-  border: 'none',
-  borderRadius: 8,
-  padding: '12px 16px',
-  fontSize: 15,
-  fontWeight: 600,
-  cursor: 'pointer',
-};

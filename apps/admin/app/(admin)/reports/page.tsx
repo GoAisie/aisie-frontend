@@ -3,24 +3,49 @@
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Download, MailCheck, Trash2 } from 'lucide-react';
 import { apiFetch } from '@/lib/api-client';
 import type { Report, ReportStatus } from '@aisie/shared';
-import { formatDateTime } from '@/lib/format';
+import { formatDateTime, isoDay, type Preset } from '@/lib/format';
+import { PageHeader } from '@/components/ui/page-header';
+import { StatusBadge, type ReportStatus as BadgeStatus } from '@/components/ui/status-badge';
+import { FilterChip } from '@/components/ui/filter-chip';
+import {
+  DateRangePicker,
+  presetToRange,
+} from '@/components/ui/date-range-picker';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Badge } from '@/components/ui/badge';
+import { EmptyState } from '@/components/ui/empty-state';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 
 type StatusFilter = 'all' | ReportStatus;
 type SortKey = 'createdAt' | 'displayName' | 'repName';
 type SortDir = 'asc' | 'desc';
 
-// Flatten the API shape to row data the table actually renders. customer_name
-// lives inside the dynamic `data` map; the row reads it once so the sort/filter
-// passes don't keep digging.
 function toRow(r: Report) {
   const customerName =
     typeof r.data?.['customer_name'] === 'string' ? r.data['customer_name'] : null;
-  // Pre-compute a lowercased haystack of every dynamic field value so the
-  // search filter doesn't recurse into `data` on every keystroke. Sales reps
-  // typically search by domain words ("demo", "fiyat") that live inside
-  // user-typed values, not just the customer/template top-level names.
+  // Pre-compute a lowercased haystack so the search filter doesn't recurse
+  // into `data` on every keystroke. Sales reps typically search by domain
+  // words ("demo", "fiyat") that live inside user-typed values, not just the
+  // top-level customer/template names.
   const dataHaystack = Object.values(r.data ?? {})
     .map((v) => (v === null || v === undefined ? '' : String(v)))
     .join(' ')
@@ -48,8 +73,9 @@ export default function AdminReportsPage() {
   const [repFilter, setRepFilter] = useState<string>('all');
   const [templateFilter, setTemplateFilter] = useState<string>('all');
   const [search, setSearch] = useState('');
-  const [dateFrom, setDateFrom] = useState<string>('');
-  const [dateTo, setDateTo] = useState<string>('');
+  const [preset, setPreset] = useState<Preset>('last30');
+  const initialRange = useMemo(() => presetToRange('last30'), []);
+  const [range, setRange] = useState<{ from: Date; to: Date }>(initialRange);
   const [sortKey, setSortKey] = useState<SortKey>('createdAt');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [pendingDelete, setPendingDelete] = useState<RowType | null>(null);
@@ -57,6 +83,8 @@ export default function AdminReportsPage() {
 
   const { data: reports = [], isLoading, isError } = useQuery({
     queryKey: ['admin-reports'],
+    // Backend caps at le=100. Pilot scale (~50 reports/rep/month) keeps this
+    // safe — true pagination is a later-round affordance once volume grows.
     queryFn: () => apiFetch<Report[]>('/api/v1/reports?scope=company&limit=100'),
   });
 
@@ -89,14 +117,16 @@ export default function AdminReportsPage() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const fromTs = dateFrom ? new Date(dateFrom).getTime() : null;
-    // Inclusive upper bound: a "from 2026-05-01 to 2026-05-13" filter should
-    // include reports created at 23:59:59 on the 13th.
-    const toTs = dateTo ? new Date(dateTo).getTime() + 86_400_000 - 1 : null;
+    const fromTs = range.from.getTime();
+    // Inclusive upper bound: range.to is start-of-day; add 24h-1ms so the last
+    // day's reports (created up to 23:59:59) are included.
+    const toTs = range.to.getTime() + 86_400_000 - 1;
     return rows.filter((r) => {
       if (statusFilter !== 'all' && r.status !== statusFilter) return false;
       if (repFilter !== 'all' && r.repName !== repFilter) return false;
       if (templateFilter !== 'all' && r.templateName !== templateFilter) return false;
+      const created = new Date(r.createdAt).getTime();
+      if (created < fromTs || created > toTs) return false;
       if (
         q &&
         !r.displayName.toLowerCase().includes(q) &&
@@ -106,14 +136,9 @@ export default function AdminReportsPage() {
       ) {
         return false;
       }
-      if (fromTs || toTs) {
-        const created = new Date(r.createdAt).getTime();
-        if (fromTs && created < fromTs) return false;
-        if (toTs && created > toTs) return false;
-      }
       return true;
     });
-  }, [rows, statusFilter, repFilter, templateFilter, search, dateFrom, dateTo]);
+  }, [rows, statusFilter, repFilter, templateFilter, search, range]);
 
   const sorted = useMemo(() => {
     const copy = [...filtered];
@@ -148,7 +173,7 @@ export default function AdminReportsPage() {
         r.displayName,
         r.templateName,
         r.repName,
-        STATUS_PALETTE[r.status]?.label ?? r.status,
+        r.status === 'completed' ? 'Tamamlandı' : 'Devam ediyor',
         formatDateTime(r.createdAt),
         r.emailSent ? `Gönderildi (${r.emailSendCount}x)` : 'Bekliyor',
       ];
@@ -160,7 +185,7 @@ export default function AdminReportsPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `raporlar-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `raporlar-${isoDay(new Date())}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -169,52 +194,70 @@ export default function AdminReportsPage() {
 
   return (
     <section>
-      <header
-        style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}
-      >
-        <div>
-          <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>Raporlar</h1>
-          <p style={{ margin: '4px 0 0', color: '#6b6b74', fontSize: 13 }}>
-            {isLoading ? 'Yükleniyor…' : 'Şirket geneli'}
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={exportCsv}
-          disabled={sorted.length === 0}
-          style={{ ...primaryBtnStyle, opacity: sorted.length === 0 ? 0.5 : 1 }}
-        >
-          Excel'e Aktar (CSV)
-        </button>
-      </header>
+      <PageHeader
+        title="Raporlar"
+        subtitle={
+          isLoading
+            ? 'Yükleniyor…'
+            : `${sorted.length} rapor`
+        }
+        rightSlot={
+          <div className="flex items-center gap-2">
+            <DateRangePicker
+              value={range}
+              preset={preset}
+              onChange={(next, p) => {
+                setRange(next);
+                setPreset(p);
+              }}
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={exportCsv}
+              disabled={sorted.length === 0}
+              className="gap-1.5"
+            >
+              <Download className="size-4" aria-hidden />
+              CSV
+            </Button>
+          </div>
+        }
+      />
 
       {isError && (
-        <p style={{ color: '#dc2626', fontSize: 14, marginBottom: 16 }}>
-          Raporlar yüklenemedi.
-        </p>
+        <p className="m-0 mb-4 text-[14px] text-destructive">Raporlar yüklenemedi.</p>
       )}
 
-      <div style={filterBarStyle}>
-        <input
+      {/* Filter rail — keyword search + status chips + rep/template selects */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <Input
           type="search"
-          placeholder="Ara..."
+          placeholder="Ara…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          style={{ ...inputStyle, flex: 1, minWidth: 200 }}
+          className="h-9 max-w-xs"
         />
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-          style={inputStyle}
-        >
-          <option value="all">Tüm durumlar</option>
-          <option value="completed">Tamamlandı</option>
-          <option value="in-progress">Devam ediyor</option>
-        </select>
+        <FilterChip
+          label="Tümü"
+          active={statusFilter === 'all'}
+          onClick={() => setStatusFilter('all')}
+        />
+        <FilterChip
+          label="Devam ediyor"
+          active={statusFilter === 'in-progress'}
+          onClick={() => setStatusFilter('in-progress')}
+        />
+        <FilterChip
+          label="Tamamlandı"
+          active={statusFilter === 'completed'}
+          onClick={() => setStatusFilter('completed')}
+        />
         <select
           value={repFilter}
           onChange={(e) => setRepFilter(e.target.value)}
-          style={inputStyle}
+          className="h-9 rounded-md border border-input bg-card px-3 text-[13px] text-foreground transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label="Kullanıcıya göre filtrele"
         >
           {reps.map((r) => (
             <option key={r} value={r}>
@@ -225,7 +268,8 @@ export default function AdminReportsPage() {
         <select
           value={templateFilter}
           onChange={(e) => setTemplateFilter(e.target.value)}
-          style={inputStyle}
+          className="h-9 rounded-md border border-input bg-card px-3 text-[13px] text-foreground transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label="Şablona göre filtrele"
         >
           {templates.map((t) => (
             <option key={t} value={t}>
@@ -233,104 +277,134 @@ export default function AdminReportsPage() {
             </option>
           ))}
         </select>
-        <input
-          type="date"
-          value={dateFrom}
-          onChange={(e) => setDateFrom(e.target.value)}
-          style={inputStyle}
-          aria-label="Başlangıç tarihi"
-        />
-        <input
-          type="date"
-          value={dateTo}
-          onChange={(e) => setDateTo(e.target.value)}
-          style={inputStyle}
-          aria-label="Bitiş tarihi"
-        />
       </div>
 
-      <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
-          <thead>
-            <tr style={{ background: '#f8fafc', textAlign: 'left' }}>
-              <SortableTh label="Müşteri / Şablon" k="displayName" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
-              <SortableTh label="Kullanıcı" k="repName" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
-              <th style={thStyle}>Durum</th>
-              <th style={thStyle}>E-posta</th>
-              <SortableTh label="Oluşturma" k="createdAt" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
-              <th style={{ ...thStyle, width: 140, textAlign: 'right' }}>İşlemler</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.length === 0 && !isLoading && (
-              <tr>
-                <td colSpan={6} style={{ padding: 32, textAlign: 'center', color: '#6b6b74' }}>
-                  Filtreye uyan rapor yok.
-                </td>
-              </tr>
-            )}
-            {sorted.map((r) => (
-              <tr key={r.id} style={{ borderTop: '1px solid #f1f5f9' }}>
-                <td style={tdStyle}>
-                  <div style={{ fontWeight: 500 }}>{r.displayName}</div>
-                  {r.displayName !== r.templateName && (
-                    <div style={{ fontSize: 12, color: '#6b6b74', marginTop: 2 }}>{r.templateName}</div>
-                  )}
-                </td>
-                <td style={{ ...tdStyle, color: '#6b6b74' }}>{r.repName}</td>
-                <td style={tdStyle}>
-                  <StatusBadge status={r.status} />
-                </td>
-                <td style={tdStyle}>
-                  <EmailBadge sent={r.emailSent} count={r.emailSendCount} />
-                </td>
-                <td style={{ ...tdStyle, color: '#6b6b74', fontVariantNumeric: 'tabular-nums' }}>
-                  {formatDateTime(r.createdAt)}
-                </td>
-                <td style={{ ...tdStyle, textAlign: 'right' }}>
-                  <Link
-                    href={`/reports/${r.id}/edit`}
-                    style={smallLinkStyle}
-                  >
-                    Düzenle
-                  </Link>
-                  <button
-                    type="button"
-                    onClick={() => { setPendingDelete(r); setDeleteError(null); }}
-                    style={{ ...dangerBtnStyle, marginLeft: 8 }}
-                  >
-                    Sil
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {!isLoading && (
-        <p style={{ marginTop: 12, fontSize: 12, color: '#9ca3af' }}>
-          {sorted.length} / {rows.length} kayıt gösteriliyor
-        </p>
-      )}
-
-      {pendingDelete && (
-        <ConfirmModal
-          title={`"${pendingDelete.displayName}" raporunu sil`}
-          body="Bu rapor liste görünümünden gizlenecek, gönderilen e-postalar etkilenmez. Devam edilsin mi?"
-          confirmLabel={softDelete.isPending ? 'Siliniyor…' : 'Sil'}
-          onCancel={() => { setPendingDelete(null); setDeleteError(null); }}
-          onConfirm={() => softDelete.mutate(pendingDelete.id)}
-          confirmDisabled={softDelete.isPending}
-          error={deleteError}
+      {!isLoading && sorted.length === 0 ? (
+        <EmptyState
+          message={
+            rows.length === 0
+              ? 'Henüz rapor yok.'
+              : 'Filtreyle eşleşen rapor yok.'
+          }
         />
+      ) : (
+        <div className="overflow-hidden rounded-xl border border-border/60 bg-card shadow-sm">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <SortableTh label="Müşteri / Şablon" k="displayName" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
+                <SortableTh label="Kullanıcı" k="repName" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
+                <TableHead>Durum</TableHead>
+                <TableHead>E-posta</TableHead>
+                <SortableTh label="Oluşturma" k="createdAt" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
+                <TableHead className="w-[140px] text-right">İşlemler</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {sorted.map((r) => {
+                const badgeStatus: BadgeStatus =
+                  r.status === 'completed' ? 'completed' : 'in-progress';
+                return (
+                  <TableRow key={r.id}>
+                    <TableCell className="font-medium">
+                      <div>{r.displayName}</div>
+                      {r.displayName !== r.templateName && (
+                        <div className="mt-0.5 text-[12px] text-muted-foreground">
+                          {r.templateName}
+                        </div>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{r.repName}</TableCell>
+                    <TableCell>
+                      <StatusBadge status={badgeStatus} />
+                    </TableCell>
+                    <TableCell>
+                      <EmailBadge sent={r.emailSent} count={r.emailSendCount} />
+                    </TableCell>
+                    <TableCell className="text-muted-foreground/90 tabular-nums">
+                      {formatDateTime(r.createdAt)}
+                    </TableCell>
+                    <TableCell className="space-x-2 text-right">
+                      <Button asChild variant="ghost" size="xs">
+                        <Link href={`/reports/${r.id}/edit`}>Düzenle</Link>
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        onClick={() => {
+                          setPendingDelete(r);
+                          setDeleteError(null);
+                        }}
+                        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                      >
+                        <Trash2 className="size-3.5" aria-hidden />
+                        Sil
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
       )}
+
+      <Dialog
+        open={!!pendingDelete}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPendingDelete(null);
+            setDeleteError(null);
+          }
+        }}
+      >
+        <DialogContent>
+          {pendingDelete && (
+            <>
+              <DialogHeader>
+                <DialogTitle>
+                  &quot;{pendingDelete.displayName}&quot; raporunu sil
+                </DialogTitle>
+                <DialogDescription>
+                  Bu rapor liste görünümünden gizlenecek. Gönderilen e-postalar
+                  etkilenmez. Devam edilsin mi?
+                </DialogDescription>
+              </DialogHeader>
+              {deleteError && (
+                <p className="m-0 text-[13px] text-destructive">{deleteError}</p>
+              )}
+              <DialogFooter>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setPendingDelete(null);
+                    setDeleteError(null);
+                  }}
+                >
+                  Vazgeç
+                </Button>
+                <Button
+                  variant="destructive"
+                  disabled={softDelete.isPending}
+                  onClick={() => softDelete.mutate(pendingDelete.id)}
+                >
+                  {softDelete.isPending ? 'Siliniyor…' : 'Sil'}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }
 
 function SortableTh({
-  label, k, sortKey, sortDir, onClick,
+  label,
+  k,
+  sortKey,
+  sortDir,
+  onClick,
 }: {
   label: string;
   k: SortKey;
@@ -341,135 +415,32 @@ function SortableTh({
   const active = sortKey === k;
   const arrow = !active ? '⇅' : sortDir === 'asc' ? '↑' : '↓';
   return (
-    <th
-      style={{ ...thStyle, cursor: 'pointer', userSelect: 'none' }}
-      onClick={() => onClick(k)}
-    >
-      {label} <span style={{ marginLeft: 4, color: active ? '#7c3aed' : '#cbd5e1' }}>{arrow}</span>
-    </th>
-  );
-}
-
-function ConfirmModal({
-  title, body, confirmLabel, onCancel, onConfirm, confirmDisabled, error,
-}: {
-  title: string;
-  body: string;
-  confirmLabel: string;
-  onCancel: () => void;
-  onConfirm: () => void;
-  confirmDisabled: boolean;
-  error: string | null;
-}) {
-  return (
-    <div onClick={onCancel} style={modalOverlayStyle}>
-      <div onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" style={modalCardStyle}>
-        <h3 style={{ margin: '0 0 8px', fontSize: 16, fontWeight: 700, color: '#0b0b0f' }}>{title}</h3>
-        <p style={{ margin: '0 0 14px', fontSize: 13, color: '#4b5563', lineHeight: 1.45 }}>{body}</p>
-        {error && <p style={{ margin: '0 0 10px', fontSize: 13, color: '#dc2626' }}>{error}</p>}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <button type="button" onClick={onCancel} style={ghostBtnStyle}>Vazgeç</button>
-          <button type="button" onClick={onConfirm} disabled={confirmDisabled} style={{ ...dangerBtnStyle, padding: '8px 16px', opacity: confirmDisabled ? 0.6 : 1 }}>
-            {confirmLabel}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-const STATUS_PALETTE: Partial<Record<ReportStatus, { label: string; bg: string; color: string }>> = {
-  completed: { label: 'Tamamlandı', bg: '#d1fae5', color: '#065f46' },
-  'in-progress': { label: 'Devam ediyor', bg: '#fef3c7', color: '#92400e' },
-};
-
-function StatusBadge({ status }: { status: ReportStatus }) {
-  const p = STATUS_PALETTE[status] ?? { label: status, bg: '#f1f5f9', color: '#475569' };
-  return (
-    <span
-      style={{
-        fontSize: 11,
-        fontWeight: 600,
-        padding: '2px 8px',
-        borderRadius: 999,
-        color: p.color,
-        background: p.bg,
-        whiteSpace: 'nowrap',
-      }}
-    >
-      {p.label}
-    </span>
+    <TableHead className="cursor-pointer select-none" onClick={() => onClick(k)}>
+      {label}{' '}
+      <span className={active ? 'ml-1 text-brand-600' : 'ml-1 text-muted-foreground/50'}>
+        {arrow}
+      </span>
+    </TableHead>
   );
 }
 
 function EmailBadge({ sent, count }: { sent: boolean; count: number }) {
   if (!sent) {
-    return <span style={{ fontSize: 11, color: '#9ca3af' }}>—</span>;
+    return <span className="text-[11.5px] text-muted-foreground">—</span>;
   }
   const isCorrection = count >= 2;
   return (
-    <span
-      style={{
-        fontSize: 11,
-        fontWeight: 600,
-        padding: '2px 8px',
-        borderRadius: 999,
-        color: isCorrection ? '#1e3a8a' : '#065f46',
-        background: isCorrection ? '#dbeafe' : '#d1fae5',
-        whiteSpace: 'nowrap',
-      }}
+    <Badge
+      variant={isCorrection ? 'default' : 'secondary'}
+      className={
+        isCorrection
+          ? 'gap-1 bg-assistant-500/15 text-assistant-600 dark:bg-assistant-500/25 dark:text-assistant-400'
+          : 'gap-1 bg-brand-100 text-brand-700 dark:bg-brand-900/40 dark:text-brand-200'
+      }
       title={isCorrection ? `${count} kez gönderildi (düzeltmelerle)` : 'Gönderildi'}
     >
+      <MailCheck className="size-3" aria-hidden />
       {isCorrection ? `Düzeltme (${count}x)` : 'Gönderildi'}
-    </span>
+    </Badge>
   );
 }
-
-const filterBarStyle: React.CSSProperties = {
-  display: 'flex',
-  gap: 10,
-  marginBottom: 16,
-  flexWrap: 'wrap',
-};
-const inputStyle: React.CSSProperties = {
-  border: '1px solid #d4d4d8',
-  borderRadius: 8,
-  padding: '8px 12px',
-  fontSize: 14,
-  background: '#fff',
-};
-const thStyle: React.CSSProperties = {
-  padding: '10px 14px',
-  fontSize: 12,
-  fontWeight: 600,
-  color: '#6b6b74',
-  textTransform: 'uppercase',
-  letterSpacing: 0.4,
-};
-const tdStyle: React.CSSProperties = {
-  padding: '12px 14px',
-  verticalAlign: 'middle',
-};
-const primaryBtnStyle: React.CSSProperties = {
-  background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 8,
-  padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-};
-const smallLinkStyle: React.CSSProperties = {
-  fontSize: 12, color: '#7c3aed', textDecoration: 'none', fontWeight: 600,
-};
-const dangerBtnStyle: React.CSSProperties = {
-  background: '#fff', color: '#dc2626', border: '1px solid #fecaca',
-  borderRadius: 6, padding: '6px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-};
-const ghostBtnStyle: React.CSSProperties = {
-  background: 'transparent', color: '#6b6b74', border: 'none',
-  padding: '8px 12px', fontSize: 13, cursor: 'pointer',
-};
-const modalOverlayStyle: React.CSSProperties = {
-  position: 'fixed', inset: 0, zIndex: 50,
-  background: 'rgba(15,16,25,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
-};
-const modalCardStyle: React.CSSProperties = {
-  background: '#fff', borderRadius: 12, padding: 20,
-  maxWidth: 420, width: '100%', boxShadow: '0 18px 40px rgba(0,0,0,0.25)',
-};

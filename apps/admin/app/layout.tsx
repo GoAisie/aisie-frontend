@@ -1,5 +1,16 @@
 import type { Metadata, Viewport } from 'next';
+import { Inter } from 'next/font/google';
 import { Providers } from '@/components/Providers';
+import './globals.css';
+
+// Inter — latin + latin-ext subsets cover Turkish diacritics. `--font-inter`
+// is wired into globals.css's `--font-sans`. Matches the PWA typeface so the
+// two apps read as one product.
+const inter = Inter({
+  subsets: ['latin', 'latin-ext'],
+  variable: '--font-inter',
+  display: 'swap',
+});
 
 export const metadata: Metadata = {
   title: 'Aisie Admin',
@@ -8,22 +19,18 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#f9f7fb' },
+    { media: '(prefers-color-scheme: dark)', color: '#0b0b0f' },
+  ],
   width: 'device-width',
   initialScale: 1,
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="tr">
-      <body
-        style={{
-          margin: 0,
-          fontFamily: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
-          background: '#f8fafc',
-          color: '#0b0b0f',
-          minHeight: '100dvh',
-        }}
-      >
+    <html lang="tr" suppressHydrationWarning className={inter.variable}>
+      <body>
         <Providers>{children}</Providers>
       </body>
     </html>

@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/lib/api-client';
 import { TemplateForm, type FieldType, type TemplateFormValue } from '@/components/TemplateForm';
+import { BackLink } from '@/components/ui/back-link';
+import { PageHeader } from '@/components/ui/page-header';
 
 type FetchedField = {
   name: string;
@@ -48,9 +50,10 @@ export default function EditTemplatePage(props: { params: Promise<{ base_id: str
             type: f.type,
             description: f.description.trim() || undefined,
             required: f.required,
-            options: f.type === 'single-select'
-              ? f.options.map((o) => o.trim()).filter(Boolean)
-              : undefined,
+            options:
+              f.type === 'single-select'
+                ? f.options.map((o) => o.trim()).filter(Boolean)
+                : undefined,
             entity_type: f.entityType ?? undefined,
           })),
         },
@@ -60,7 +63,8 @@ export default function EditTemplatePage(props: { params: Promise<{ base_id: str
       router.push('/templates');
     },
     onError: (err) => {
-      const detail = (err as { body?: { detail?: { validation_errors?: string[] } } }).body?.detail;
+      const detail = (err as { body?: { detail?: { validation_errors?: string[] } } })
+        .body?.detail;
       if (detail?.validation_errors?.length) {
         setServerError(detail.validation_errors.join(' • '));
       } else {
@@ -69,8 +73,23 @@ export default function EditTemplatePage(props: { params: Promise<{ base_id: str
     },
   });
 
-  if (isLoading) return <p style={{ color: '#6b6b74' }}>Yükleniyor…</p>;
-  if (isError || !template) return <p style={{ color: '#dc2626' }}>Şablon bulunamadı.</p>;
+  if (isLoading) {
+    return (
+      <section>
+        <BackLink href="/templates" label="Şablonlar" />
+        <p className="m-0 text-[14px] text-muted-foreground">Yükleniyor…</p>
+      </section>
+    );
+  }
+
+  if (isError || !template) {
+    return (
+      <section>
+        <BackLink href="/templates" label="Şablonlar" />
+        <p className="m-0 text-[14px] text-destructive">Şablon bulunamadı.</p>
+      </section>
+    );
+  }
 
   const initial: TemplateFormValue = {
     baseId: template.base_id,
@@ -81,20 +100,18 @@ export default function EditTemplatePage(props: { params: Promise<{ base_id: str
       description: f.description ?? '',
       required: f.required ?? true,
       options: f.options ?? [],
-      // Only "followup_date" round-trips through the UI today. "customer"
-      // entity_type is preserved at server level but invisible here — the
-      // form drops it on save (no UI to render). If we expose customer-typed
-      // fields in the editor later, this normalisation step disappears.
+      // Only "followup_date" round-trips through the UI. "customer" entity_type
+      // is preserved at the server level but invisible here — the form drops it
+      // on save (no UI to render). If we expose customer-typed fields in the
+      // editor later, this normalisation step disappears.
       entityType: f.entity_type === 'followup_date' ? 'followup_date' : null,
     })),
   };
 
   return (
-    <section style={{ maxWidth: 760 }}>
-      <header style={{ marginBottom: 20 }}>
-        <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>Şablon Düzenle</h1>
-        <p style={{ margin: '4px 0 0', color: '#6b6b74', fontSize: 13 }}>v{template.version}</p>
-      </header>
+    <section className="mx-auto max-w-4xl">
+      <BackLink href="/templates" label="Şablonlar" />
+      <PageHeader title="Şablon Düzenle" subtitle={`v${template.version}`} />
 
       <TemplateForm
         initial={initial}
@@ -102,7 +119,10 @@ export default function EditTemplatePage(props: { params: Promise<{ base_id: str
         submitting={update.isPending}
         serverError={serverError}
         onCancel={() => router.push('/templates')}
-        onSubmit={(value) => { setServerError(null); update.mutate(value); }}
+        onSubmit={(value) => {
+          setServerError(null);
+          update.mutate(value);
+        }}
       />
     </section>
   );
