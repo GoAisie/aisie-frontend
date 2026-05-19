@@ -282,7 +282,7 @@ export default function CalendarPage() {
           if (!open) setShowPicker(false);
         }}
       >
-        <DialogContent className="max-w-[340px]">
+        <DialogContent className="sm:max-w-[340px]">
           <DialogHeader>
             <DialogTitle className="sr-only">Yıl ve ay seçimi</DialogTitle>
           </DialogHeader>
@@ -319,11 +319,11 @@ function YearMonthBody({
 }) {
   const [pendingYear, setPendingYear] = useState(currentYear);
   const thisYear = new Date().getFullYear();
-  // ±5 around the current "today" year — covers retrospective viewing and a
-  // little forward planning without overwhelming the year strip.
+  // 12 years (this year - 5 .. this year + 6) — fills a clean 4×3 grid with no
+  // empty cells and gives slight forward bias for booking ahead.
   const years = useMemo(() => {
     const arr: number[] = [];
-    for (let y = thisYear - 5; y <= thisYear + 5; y++) arr.push(y);
+    for (let y = thisYear - 5; y <= thisYear + 6; y++) arr.push(y);
     return arr;
   }, [thisYear]);
 
@@ -333,7 +333,7 @@ function YearMonthBody({
         <p className="m-0 mb-2 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">
           Yıl
         </p>
-        <div className="flex gap-1.5 overflow-x-auto pb-1.5">
+        <div className="grid grid-cols-4 gap-1.5">
           {years.map((y) => {
             const active = y === pendingYear;
             return (
@@ -341,7 +341,7 @@ function YearMonthBody({
                 key={y}
                 onClick={() => setPendingYear(y)}
                 className={cn(
-                  'shrink-0 rounded-full border px-3.5 py-1.5 text-[14px] font-medium transition-colors active:scale-95',
+                  'rounded-md border px-1 py-2.5 text-[13px] font-medium transition-colors active:scale-95',
                   active
                     ? 'border-brand-600 bg-brand-600 text-white'
                     : 'border-border bg-card text-foreground hover:bg-muted',
