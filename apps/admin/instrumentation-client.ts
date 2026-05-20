@@ -16,6 +16,9 @@ Sentry.init({
       maskAllText: false,
       blockAllMedia: false,
     }),
+    // Forward console.error() calls as Sentry events. See apps/pwa for the
+    // full rationale; admin runs on the same quota strategy.
+    Sentry.captureConsoleIntegration({ levels: ['error'] }),
   ],
 });
 

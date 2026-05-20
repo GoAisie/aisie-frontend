@@ -25,6 +25,13 @@ Sentry.init({
       maskAllText: false,
       blockAllMedia: false,
     }),
+    // Forward console.error() calls as Sentry events. Default Sentry only
+    // captures thrown exceptions; deliberate `console.error('something went
+    // wrong')` calls in client code would otherwise stay invisible in prod.
+    // Restricted to 'error' only — capturing 'warn' or 'info' burns the
+    // 5K-events/month free quota fast (a single noisy page can emit hundreds
+    // of warnings).
+    Sentry.captureConsoleIntegration({ levels: ['error'] }),
   ],
 });
 
