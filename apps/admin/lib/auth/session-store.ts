@@ -1,6 +1,7 @@
 'use client';
 
 import { create } from 'zustand';
+import * as Sentry from '@sentry/nextjs';
 import type { User } from '@aisie/shared';
 import { loginResponseSchema } from '@aisie/shared';
 import { env } from '../env';
@@ -82,6 +83,14 @@ export const useSessionStore = create<SessionState>((set) => ({
     }
 
     set({ accessToken, refreshToken, user, role: newRole });
+
+    // Sentry user identity binding — every captured exception/transaction in
+    // this session carries the user_id/email/role tags, so Issue grouping +
+    // "affected users" works in the dashboard. Without this, pilot exceptions
+    // surface as "User: anonymous" and we cannot answer "which user hit this".
+    Sentry.setUser({ id: user.publicId, email: user.email });
+    Sentry.setTag('role', newRole ?? 'unknown');
+
     try {
       localStorage.setItem(STORAGE_KEY_REFRESH, refreshToken);
       localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(user));
@@ -92,6 +101,7 @@ export const useSessionStore = create<SessionState>((set) => ({
 
   clearSession: () => {
     set({ accessToken: null, refreshToken: null, user: null, role: null });
+    Sentry.setUser(null);
     try {
       localStorage.removeItem(STORAGE_KEY_REFRESH);
       localStorage.removeItem(STORAGE_KEY_USER);

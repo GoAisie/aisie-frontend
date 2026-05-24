@@ -1,9 +1,29 @@
 'use client';
 
 import { create } from 'zustand';
+import * as Sentry from '@sentry/nextjs';
 import type { User } from '@aisie/shared';
 import { loginResponseSchema } from '@aisie/shared';
 import { env } from '../env';
+
+// JWT payload claim 'role' is the ground truth for the current session's
+// authority. Decoded once at setSession so Sentry events tag the role
+// without leaking the access token to the SDK transport.
+function decodeRoleFromAccessToken(token: string): string | null {
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+  try {
+    const b64 = parts[1]!.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
+    const json = typeof atob === 'function'
+      ? atob(padded)
+      : Buffer.from(padded, 'base64').toString('utf-8');
+    const claims = JSON.parse(json) as { role?: string };
+    return claims.role ?? null;
+  } catch {
+    return null;
+  }
+}
 
 // Access token stays in memory only (no localStorage) — avoids XSS exfiltration.
 // Refresh token is stored in localStorage so a page reload can silently re-issue
@@ -30,6 +50,15 @@ export const useSessionStore = create<SessionState>((set) => ({
 
   setSession: ({ accessToken, refreshToken, user }) => {
     set({ accessToken, refreshToken, user });
+
+    // Sentry user identity binding — every captured exception/transaction in
+    // this session carries the user_id/email/role tags, so Issue grouping +
+    // "affected users" works in the dashboard. Without this, pilot exceptions
+    // surface as "User: anonymous" and we cannot answer "which user hit this".
+    Sentry.setUser({ id: user.publicId, email: user.email });
+    const role = decodeRoleFromAccessToken(accessToken);
+    if (role) Sentry.setTag('role', role);
+
     try {
       localStorage.setItem(STORAGE_KEY_REFRESH, refreshToken);
       localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(user));
@@ -40,6 +69,7 @@ export const useSessionStore = create<SessionState>((set) => ({
 
   clearSession: () => {
     set({ accessToken: null, refreshToken: null, user: null });
+    Sentry.setUser(null);
     try {
       localStorage.removeItem(STORAGE_KEY_REFRESH);
       localStorage.removeItem(STORAGE_KEY_USER);
