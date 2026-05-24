@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useMutation } from '@tanstack/react-query';
 import { loginRequestSchema, loginResponseSchema, type LoginResponse } from '@aisie/shared';
 import { apiFetch, ApiError } from '@/lib/api-client';
@@ -101,6 +102,15 @@ export default function AdminLoginPage() {
       <Button type="submit" disabled={login.isPending} className="mt-1 h-10">
         {login.isPending ? 'Giriş yapılıyor…' : 'Giriş Yap'}
       </Button>
+
+      <p className="m-0 text-center text-[13px] text-muted-foreground">
+        <Link
+          href="/password-reset/request"
+          className="font-semibold text-brand-600 hover:underline"
+        >
+          Şifremi unuttum
+        </Link>
+      </p>
     </form>
   );
 }
