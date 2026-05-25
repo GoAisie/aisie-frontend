@@ -1,11 +1,21 @@
 import type { NextConfig } from 'next';
 import { withSentryConfig } from '@sentry/nextjs';
 
+// Build-time SHA inlining. Vercel exposes VERCEL_GIT_COMMIT_SHA at build time
+// but doesn't prefix it with NEXT_PUBLIC_ for runtime client use. Map it here
+// so `process.env.NEXT_PUBLIC_BUILD_SHA` reaches the browser and the user-
+// visible version badge can render a 7-char SHA. Falls back to "local" off
+// Vercel so local pnpm dev doesn't break.
+const BUILD_SHA = (process.env.VERCEL_GIT_COMMIT_SHA ?? 'local').substring(0, 7);
+
 // Transpile the workspace-local shared package so Next doesn't
 // try to import it as a pre-compiled node module.
 const nextConfig: NextConfig = {
   transpilePackages: ['@aisie/shared'],
   reactStrictMode: true,
+  env: {
+    NEXT_PUBLIC_BUILD_SHA: BUILD_SHA,
+  },
 };
 
 // withSentryConfig wires source-map upload, tunnel route, and Vercel cron

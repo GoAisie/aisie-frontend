@@ -130,6 +130,20 @@ export function Sidebar() {
             <p className="m-0 text-[13px] font-semibold text-foreground">{user.fullName}</p>
             <p className="m-0 text-[11px] text-muted-foreground">{user.email}</p>
             <p className="m-0 text-[11px] font-medium text-brand-600">{user.companyName}</p>
+            {/* Pilot support hook: copyable build SHA. Click-to-copy so an
+                operator can pin a bug report to the exact deploy without us
+                asking which version manually. */}
+            <button
+              type="button"
+              onClick={() => {
+                const sha = process.env.NEXT_PUBLIC_BUILD_SHA ?? 'local';
+                if (navigator.clipboard) navigator.clipboard.writeText(sha).catch(() => {});
+              }}
+              title="Sürümü kopyala"
+              className="m-0 mt-1 self-start rounded bg-transparent px-1 py-0.5 text-left text-[10px] font-mono text-muted-foreground/60 hover:text-foreground"
+            >
+              v{process.env.NEXT_PUBLIC_BUILD_SHA ?? 'local'}
+            </button>
           </div>
         )}
         <div className="flex items-center gap-2">

@@ -77,6 +77,22 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       </div>
 
       <main>{children}</main>
+      {/* Pilot support hook: long-press-copyable build SHA. Tap-to-copy lets a
+          user pinpoint the exact deploy they hit a bug on without us asking
+          "hangi sürümdeydiniz" by hand. Positioned just above BottomTabs so it
+          never overlaps the nav. */}
+      <button
+        type="button"
+        onClick={() => {
+          const sha = process.env.NEXT_PUBLIC_BUILD_SHA ?? 'local';
+          if (navigator.clipboard) navigator.clipboard.writeText(sha).catch(() => {});
+        }}
+        title="Sürümü kopyala"
+        className="fixed bottom-[calc(64px+env(safe-area-inset-bottom)+4px)] right-3 z-30 rounded-full bg-transparent px-1.5 py-0.5 text-[9px] font-mono text-muted-foreground/60 hover:text-foreground active:scale-95"
+        aria-label="Uygulama sürümü"
+      >
+        v{process.env.NEXT_PUBLIC_BUILD_SHA ?? 'local'}
+      </button>
       <BottomTabs />
       <IosInstallPrompt />
     </div>
