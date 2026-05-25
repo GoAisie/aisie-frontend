@@ -57,17 +57,24 @@ export class RealConversationClient implements ConversationClient {
       throw new Error('Oturum bilgisi bulunamadı, lütfen tekrar giriş yapın.');
     }
 
-    // WS handshake can't carry an Authorization header reliably (browsers
-    // drop custom headers on new WebSocket()), so the gateway expects the
-    // token as a query parameter — same contract we've used since Faz 1.
-    // `conversation_id` is the optional resume hint — when present the backend
-    // rehydrates the matching Conversation from MongoDB instead of starting fresh.
+    // WS handshake auth via Sec-WebSocket-Protocol subprotocol negotiation
+    // rather than a query-string token. Rationale: query-string tokens leak
+    // into every URL-logging surface (ALB access logs, CloudWatch URI fields,
+    // Sentry breadcrumbs, browser history). Subprotocol values stay in the
+    // request-line of the HTTP/1.1 Upgrade handshake and are NOT logged by
+    // AWS ALB or CloudFront. Kubernetes API and Auth0 use this exact pattern.
+    // The `bearer.` prefix lets the gateway distinguish the auth subprotocol
+    // from any future feature-negotiation subprotocols.
+    //
+    // `conversation_id` stays in the query string — it isn't sensitive (it's
+    // a resume hint, server-side ACL verifies the user owns it).
     const base = env.wsBaseUrl.replace(/\/$/, '');
-    const params = new URLSearchParams({ token });
+    const params = new URLSearchParams();
     if (conversationId) params.set('conversation_id', conversationId);
-    const url = `${base}${WS_PATH}?${params.toString()}`;
+    const queryString = params.toString();
+    const url = `${base}${WS_PATH}${queryString ? `?${queryString}` : ''}`;
 
-    const ws = new WebSocket(url);
+    const ws = new WebSocket(url, [`bearer.${token}`]);
     ws.binaryType = 'arraybuffer';
     this.ws = ws;
 
@@ -87,7 +94,7 @@ export class RealConversationClient implements ConversationClient {
       };
       const onOpen = () => {
         cleanup();
-        console.log('[WS] open', { url: url.replace(/token=[^&]+/, 'token=***') });
+        console.log('[WS] open', { url });
         resolve();
       };
       const onError = () => {

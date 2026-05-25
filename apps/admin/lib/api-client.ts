@@ -10,6 +10,18 @@ export class ApiError extends Error {
   }
 }
 
+// Thrown internally by tryRefreshAccessToken when refresh fails with 5xx or
+// a network error. Distinguishes "server rejected my token" (401/403 → log
+// out) from "couldn't reach server" (5xx / fetch threw → keep session).
+// Without this split, a rolling deploy or transient gateway blip kicks every
+// user to /login mid-dashboard.
+class TransientRefreshError extends Error {
+  constructor(public readonly status: number) {
+    super(`Transient refresh failure: ${status}`);
+    this.name = 'TransientRefreshError';
+  }
+}
+
 type FetchOptions = Omit<RequestInit, 'body'> & {
   body?: unknown;
   skipAuth?: boolean;
@@ -31,12 +43,24 @@ async function tryRefreshAccessToken(): Promise<boolean> {
           ? localStorage.getItem('aisie_admin_refresh_token')
           : null);
       if (!stored) return false;
-      const res = await fetch(`${env.apiBaseUrl}/auth/refresh`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refresh_token: stored }),
-      });
-      if (!res.ok) return false;
+      let res: Response;
+      try {
+        res = await fetch(`${env.apiBaseUrl}/auth/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh_token: stored }),
+        });
+      } catch {
+        throw new TransientRefreshError(0);
+      }
+      if (res.status === 401 || res.status === 403) {
+        // Server-confirmed refresh failure — caller will clearSession.
+        return false;
+      }
+      if (!res.ok) {
+        // 5xx / unexpected non-2xx — gateway up, downstream sick. Keep session.
+        throw new TransientRefreshError(res.status);
+      }
       const raw = await res.json();
       const data = loginResponseSchema.parse(raw);
       useSessionStore.getState().setSession({
@@ -45,8 +69,6 @@ async function tryRefreshAccessToken(): Promise<boolean> {
         user: data.user,
       });
       return true;
-    } catch {
-      return false;
     } finally {
       refreshInFlight = null;
     }
@@ -102,11 +124,20 @@ export async function apiFetch<T>(path: string, opts: FetchOptions = {}): Promis
 
   if (!response.ok) {
     if (response.status === 401 && !skipAuth && !_isRetry) {
-      // Access token expired mid-session. Try a silent refresh; if it succeeds,
-      // replay the original request with the new token. If the refresh fails
-      // (refresh token also expired or revoked), clear the session and surface
-      // the 401 so route guards redirect to /login.
-      const refreshed = await tryRefreshAccessToken();
+      // Access token expired mid-session. Silent refresh; success → replay.
+      // Genuine refresh failure (false) → clearSession. TransientRefreshError
+      // (5xx / network) → keep session, surface the original 401 so the
+      // caller can retry on its own cadence without dragging the user to
+      // /login mid-flow.
+      let refreshed = false;
+      try {
+        refreshed = await tryRefreshAccessToken();
+      } catch (e) {
+        if (!(e instanceof TransientRefreshError)) {
+          useSessionStore.getState().clearSession();
+        }
+        throw new ApiError(response.status, payload, `API ${response.status} ${response.statusText}`);
+      }
       if (refreshed) {
         return apiFetch<T>(path, { ...opts, _isRetry: true });
       }

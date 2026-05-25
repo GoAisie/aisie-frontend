@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useSessionStore } from '@/lib/auth/session-store';
 import { useActingCompanyStore } from '@/lib/auth/acting-company-store';
+import { apiFetch } from '@/lib/api-client';
 import { OrgPicker } from '@/components/OrgPicker';
 import { ModeToggle } from '@/components/ModeToggle';
 import { cn } from '@/lib/utils';
@@ -46,7 +47,21 @@ export function Sidebar() {
   const clearSession = useSessionStore((s) => s.clearSession);
   const clearActingCompany = useActingCompanyStore((s) => s.setActingCompany);
 
-  const logout = () => {
+  const logout = async () => {
+    // Real logout: fire /auth/logout with the refresh token in body so
+    // main-service revokes its jti server-side (K-1 fix). Failures are
+    // non-fatal — local clear is still the user-facing source of truth.
+    // Read refresh token BEFORE clearSession.
+    const refreshToken = useSessionStore.getState().refreshToken;
+    try {
+      await apiFetch('/auth/logout', {
+        method: 'POST',
+        body: refreshToken ? { refresh_token: refreshToken } : undefined,
+      });
+    } catch {
+      // Network failure / 401 — proceed; 7-day refresh TTL still bounds
+      // the damage even if revoke didn't persist.
+    }
     // Drop the acting-company override too — a fresh login should always
     // start in the user's own company, not whatever was selected last.
     clearActingCompany(null, null);

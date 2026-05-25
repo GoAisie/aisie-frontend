@@ -9,6 +9,20 @@ export class ApiError extends Error {
   }
 }
 
+// Thrown internally by the refresh path when the response status is 5xx or
+// the network was unreachable — i.e. the refresh did not *fail* (token
+// rejected) but instead *could not complete*. apiFetch treats this distinctly
+// from a 401: a 5xx must NOT clear the session, otherwise a transient gateway
+// blip during a tunnel switch or rolling deploy drops the user to /login mid-
+// workflow. The caller path simply propagates the original ApiError up so
+// the UI surfaces "couldn't reach server" rather than "logged out".
+class TransientRefreshError extends Error {
+  constructor(public readonly status: number) {
+    super(`Transient refresh failure: ${status}`);
+    this.name = 'TransientRefreshError';
+  }
+}
+
 type FetchOptions = Omit<RequestInit, 'body'> & {
   body?: unknown;
   // Opt out of auth header injection (used for /auth/login, /auth/refresh).
@@ -31,12 +45,29 @@ async function tryRefreshAccessToken(): Promise<boolean> {
           ? localStorage.getItem('aisie_refresh_token')
           : null);
       if (!stored) return false;
-      const res = await fetch(`${env.apiBaseUrl}/auth/refresh`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refresh_token: stored }),
-      });
-      if (!res.ok) return false;
+      let res: Response;
+      try {
+        res = await fetch(`${env.apiBaseUrl}/auth/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh_token: stored }),
+        });
+      } catch {
+        // Fetch threw — DNS / TCP / TLS / offline. Treat as transient: do not
+        // clear the session; let the caller retry on its next request when
+        // the network may have recovered.
+        throw new TransientRefreshError(0);
+      }
+      if (res.status === 401 || res.status === 403) {
+        // Refresh token rejected by server (expired, revoked, reuse detected).
+        // This is a genuine "log out" signal — the caller will clearSession.
+        return false;
+      }
+      if (!res.ok) {
+        // 5xx or other non-2xx that isn't an auth verdict — gateway is up but
+        // a downstream is sick (DB blip, rolling deploy). Don't kick the user.
+        throw new TransientRefreshError(res.status);
+      }
       const raw = await res.json();
       const data = loginResponseSchema.parse(raw);
       useSessionStore.getState().setSession({
@@ -45,8 +76,6 @@ async function tryRefreshAccessToken(): Promise<boolean> {
         user: data.user,
       });
       return true;
-    } catch {
-      return false;
     } finally {
       refreshInFlight = null;
     }
@@ -81,19 +110,32 @@ const TOKEN_REFRESH_BUFFER_SEC = 60;
 // is safe: the gateway re-verifies on every connect, so this is only a
 // hint to know when to refresh.
 //
-// Returns null when: no access token AND refresh failed, OR refresh token
-// itself is invalid. Callers treat null as a hard "user must re-login".
+// Returns null when: no access token AND refresh failed (server rejected),
+// OR refresh token itself is invalid. Callers treat null as a hard "user must
+// re-login". TransientRefreshError (5xx / network) keeps the current access
+// token in play and returns it — caller can retry on its own cadence rather
+// than yielding the user to /login.
 export async function ensureValidAccessToken(): Promise<string | null> {
   const current = getAccessToken();
   if (!current) {
-    const ok = await tryRefreshAccessToken();
-    return ok ? getAccessToken() : null;
+    try {
+      const ok = await tryRefreshAccessToken();
+      return ok ? getAccessToken() : null;
+    } catch (e) {
+      if (e instanceof TransientRefreshError) return null;
+      return null;
+    }
   }
   const exp = getJwtExpiry(current);
   const now = Math.floor(Date.now() / 1000);
   if (exp === null || exp - now <= TOKEN_REFRESH_BUFFER_SEC) {
-    const ok = await tryRefreshAccessToken();
-    return ok ? getAccessToken() : null;
+    try {
+      const ok = await tryRefreshAccessToken();
+      return ok ? getAccessToken() : current;
+    } catch (e) {
+      if (e instanceof TransientRefreshError) return current;  // keep current; let WS connect try anyway
+      return null;
+    }
   }
   return current;
 }
@@ -137,7 +179,22 @@ export async function apiFetch<T>(path: string, opts: FetchOptions = {}): Promis
 
   if (!response.ok) {
     if (response.status === 401 && !skipAuth && !_isRetry) {
-      const refreshed = await tryRefreshAccessToken();
+      // Silent refresh attempt. tryRefreshAccessToken now throws
+      // TransientRefreshError on 5xx / network — those must NOT clear the
+      // session; treat them as "couldn't refresh, surface the original 401".
+      // Only a genuine server-confirmed refresh failure (returns false)
+      // triggers clearSession + /login redirect.
+      let refreshed = false;
+      try {
+        refreshed = await tryRefreshAccessToken();
+      } catch (e) {
+        if (!(e instanceof TransientRefreshError)) {
+          useSessionStore.getState().clearSession();
+        }
+        // Transient: do not clear session; the user keeps their tokens and
+        // can retry the action when the network recovers.
+        throw new ApiError(response.status, payload, `API ${response.status} ${response.statusText}`);
+      }
       if (refreshed) {
         return apiFetch<T>(path, { ...opts, _isRetry: true });
       }

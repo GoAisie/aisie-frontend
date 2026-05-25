@@ -18,12 +18,19 @@ export function LogoutButton() {
     } catch {
       // No active session, or store not mounted — non-fatal.
     }
-    // Audit-only logout per current main-service contract; failures are ignored
-    // because clearing local state is the user-facing source of truth.
+    // Real logout: pass the refresh_token in the body so main-service can
+    // persist its jti into revoked_refresh_tokens. The next /auth/refresh
+    // with that token gets 401 "Token reuse detected" — closes the K-1
+    // logout-no-op gap. Read refresh token BEFORE clearSession runs.
+    const refreshToken = useSessionStore.getState().refreshToken;
     try {
-      await apiFetch('/auth/logout', { method: 'POST' });
+      await apiFetch('/auth/logout', {
+        method: 'POST',
+        body: refreshToken ? { refresh_token: refreshToken } : undefined,
+      });
     } catch {
-      // Network failure or 401 — proceed with local clear regardless.
+      // Network failure or 401 — proceed with local clear regardless. The
+      // refresh token's TTL still bounds the damage to 7 days in this case.
     }
     clearSession();
     router.replace('/login');

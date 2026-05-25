@@ -1,9 +1,14 @@
 import { z } from 'zod';
 import { uuidSchema } from './common';
 
-// Roles mirror main-service `CompanyUserRole` enum. The `role` claim is added to
-// the JWT in Faz 2.5; frontend receives it as part of the login response.
-export const userRoleSchema = z.enum(['COMPANY_ADMIN', 'SALES_REP']);
+// Roles mirror main-service `CompanyUserRole` enum (SUPER_ADMIN +
+// COMPANY_ADMIN + SALES_REP — see model/enums/CompanyUserRole.java). The
+// `role` claim is added to the JWT in Faz 2.5; frontend receives it via the
+// login response (today only as the optional userSchema.role; future commits
+// may add it to UserDto directly). Keeping all three enum values in sync
+// with the backend prevents the ZodError that SUPER_ADMIN logins would
+// otherwise hit if/when UserDto includes role.
+export const userRoleSchema = z.enum(['SUPER_ADMIN', 'COMPANY_ADMIN', 'SALES_REP']);
 export type UserRole = z.infer<typeof userRoleSchema>;
 
 // Matches the `UserDto` returned by main-service login/refresh/validate and the
