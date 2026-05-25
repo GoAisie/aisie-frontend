@@ -22,11 +22,20 @@ export function LogoutButton() {
     // persist its jti into revoked_refresh_tokens. The next /auth/refresh
     // with that token gets 401 "Token reuse detected" — closes the K-1
     // logout-no-op gap. Read refresh token BEFORE clearSession runs.
+    //
+    // skipAuth=true bypasses the apiFetch 401-retry-via-refresh path. If
+    // the access token happened to expire at the exact moment of logout,
+    // the retry path would silently call /auth/refresh with the same token
+    // we're about to revoke — rotation would consume the jti, the logout
+    // call would never reach the server, and the revocation would not
+    // persist. Backend identifies the user from the refresh_token body,
+    // not from the Authorization header, so skipping auth here is safe.
     const refreshToken = useSessionStore.getState().refreshToken;
     try {
       await apiFetch('/auth/logout', {
         method: 'POST',
         body: refreshToken ? { refresh_token: refreshToken } : undefined,
+        skipAuth: true,
       });
     } catch {
       // Network failure or 401 — proceed with local clear regardless. The

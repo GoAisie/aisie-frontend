@@ -52,11 +52,18 @@ export function Sidebar() {
     // main-service revokes its jti server-side (K-1 fix). Failures are
     // non-fatal — local clear is still the user-facing source of truth.
     // Read refresh token BEFORE clearSession.
+    //
+    // skipAuth=true bypasses the apiFetch 401-retry-via-refresh path. If
+    // the access token expired at the moment of logout, the retry would
+    // silently rotate the same refresh token we're about to revoke and
+    // the logout call would never reach the server. Backend identifies
+    // the user from the refresh_token body, not the Authorization header.
     const refreshToken = useSessionStore.getState().refreshToken;
     try {
       await apiFetch('/auth/logout', {
         method: 'POST',
         body: refreshToken ? { refresh_token: refreshToken } : undefined,
+        skipAuth: true,
       });
     } catch {
       // Network failure / 401 — proceed; 7-day refresh TTL still bounds
