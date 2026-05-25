@@ -1,6 +1,7 @@
 'use client';
 
 import { create } from 'zustand';
+import * as Sentry from '@sentry/nextjs';
 import type { WsServerMessage } from '@aisie/shared';
 import {
   BargeInDetector,
@@ -530,6 +531,12 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
 
   startSession: async (conversationId) => {
     if (client) return;
+    Sentry.addBreadcrumb({
+      category: 'aisie.session',
+      message: conversationId ? 'Resume start' : 'Fresh start',
+      level: 'info',
+      data: { conversation_id: conversationId ?? null },
+    });
     const apply = get()._apply;
     apply({ type: 'SET_MODE', mode: 'connecting' });
 
@@ -722,6 +729,11 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
         /* connection state surfaces via mode transitions */
       },
       onError: (e) => {
+        Sentry.addBreadcrumb({
+          category: 'aisie.ws',
+          message: `WS fatal error: ${e.message}`,
+          level: 'error',
+        });
         apply({ type: 'ERROR', error: e.message });
         // Release resources but keep the error visible — endSession would
         // RESET the state and the user would never see what went wrong.
@@ -731,6 +743,11 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
         // The pong watchdog already burned its 15s grace before firing —
         // this callback IS the "network has been silent for too long"
         // signal. Pause immediately rather than introducing a second timer.
+        Sentry.addBreadcrumb({
+          category: 'aisie.ws',
+          message: 'WS pong watchdog fired (15s silence)',
+          level: 'warning',
+        });
         console.log('[PAUSE] network_loss');
         void get().pauseSession('network_loss');
       },
@@ -739,6 +756,12 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
         // We end (not pause): the other device now owns the resume key.
         // Show a banner via ERROR so the user understands why the session
         // closed.
+        Sentry.addBreadcrumb({
+          category: 'aisie.ws',
+          message: `WS evicted by another device: ${reason}`,
+          level: 'warning',
+          data: { reason },
+        });
         console.log('[WS] evicted', { reason });
         clearPausedConversationId();
         apply({
@@ -752,6 +775,12 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
         // don't keep retrying. The session continues as a fresh conversation
         // (the backend already created a new Conversation in
         // `_ensure_conversation_exists`).
+        Sentry.addBreadcrumb({
+          category: 'aisie.ws',
+          message: `Resume failed: ${reason}`,
+          level: 'warning',
+          data: { reason },
+        });
         console.log('[RESUME] failed', { reason });
         clearPausedConversationId();
         if (reason === 'closed') {
@@ -957,10 +986,24 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
     // expecting it can fight pause/resume eviction logic. The user
     // explicitly taps to resume.
     const onOffline = () => {
+      // navigator.onLine flipped false — OS-level connectivity dropped
+      // (WiFi off, mobile data off, airplane mode, network handover gap).
+      // Breadcrumb here lets future error reports show the exact moment
+      // connectivity vanished as part of the timeline that led to a bug.
+      Sentry.addBreadcrumb({
+        category: 'aisie.network',
+        message: 'Network offline (navigator.onLine=false)',
+        level: 'warning',
+      });
       console.log('[NETWORK] offline');
       void get().pauseSession('network_loss');
     };
     const onOnline = () => {
+      Sentry.addBreadcrumb({
+        category: 'aisie.network',
+        message: 'Network online (navigator.onLine=true)',
+        level: 'info',
+      });
       console.log('[NETWORK] online');
     };
     window.addEventListener('offline', onOffline);
@@ -987,6 +1030,11 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
     // the beacon — that empty Conversation is a yetim case that the 1h cron
     // finalizes, just like before.
     const onPageHide = () => {
+      Sentry.addBreadcrumb({
+        category: 'aisie.lifecycle',
+        message: 'pagehide (tab close / navigate away / bfcache)',
+        level: 'info',
+      });
       const id = getPausedConversationId();
       if (!id) return;
       const token = getAccessToken();
@@ -1046,9 +1094,19 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
     // tearing down our state explicitly avoids stale state on return.
     const onVisibilityChange = () => {
       if (document.visibilityState === 'hidden') {
+        Sentry.addBreadcrumb({
+          category: 'aisie.lifecycle',
+          message: 'Page hidden (tab switch / app background / screen lock)',
+          level: 'info',
+        });
         console.log('[PAUSE] visibility_hidden');
         void get().pauseSession('background');
       } else {
+        Sentry.addBreadcrumb({
+          category: 'aisie.lifecycle',
+          message: 'Page visible',
+          level: 'info',
+        });
         console.log('[VISIBILITY] visible — staying in current mode');
       }
     };
@@ -1098,6 +1156,17 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
       // races with a manual tap).
       return;
     }
+    // Breadcrumb covers ALL pause reasons in one place — mic_lost,
+    // audio_suspended, network_loss, idle_timeout, background, manual, and
+    // the K-6 / F2-F5 typed kinds (overloaded, tts_failed, backend_timeout,
+    // persistence_failed, backend_no_response). Future error reports show
+    // the reason inline in the breadcrumb timeline.
+    Sentry.addBreadcrumb({
+      category: 'aisie.session',
+      message: `Pause: ${reason ?? 'manual'}`,
+      level: reason && reason !== 'manual' && reason !== 'background' ? 'warning' : 'info',
+      data: { reason: reason ?? 'manual' },
+    });
     console.log('[PAUSE] start', { reason: reason ?? 'manual' });
     // Chime fires on every pause (manual + auto). Single helper keeps the
     // UX consistent and avoids accidentally skipping the cue on a path the
@@ -1115,12 +1184,24 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
     // storage quota, manual clear) we fall through to a fresh start so the
     // user is never stuck with an unrecoverable paused screen.
     const id = getPausedConversationId();
+    Sentry.addBreadcrumb({
+      category: 'aisie.session',
+      message: 'Resume tapped',
+      level: 'info',
+      data: { conversation_id: id },
+    });
     console.log('[RESUME] start', { conversation_id: id });
     get()._apply({ type: 'RESUME' });
     await get().startSession(id ?? undefined);
   },
 
   endSession: async () => {
+    Sentry.addBreadcrumb({
+      category: 'aisie.session',
+      message: 'End session (explicit close)',
+      level: 'info',
+      data: { conversation_id: getPausedConversationId() },
+    });
     // Dual-channel close signal:
     //   - WS message (close_session): works in active modes where `client`
     //     is alive. The backend WS finally block becomes the single writer
