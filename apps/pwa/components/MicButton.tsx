@@ -1,7 +1,7 @@
 'use client';
 
 import { motion, useMotionValue, useSpring } from 'motion/react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 
 export type MicButtonMode =
@@ -22,15 +22,33 @@ export type MicButtonProps = {
   ariaLabel?: string;
 };
 
-// Voice screen primary affordance. 320px circular button with Framer Motion
-// spring-driven scale. Industry-standard heartbeat pattern (Discord voice
-// indicator, Spotify now-playing pulse): RMS-driven scale + intensifying
-// shadow during speech, spring physics smooth out jitter.
+// Idle/closed mic button size in px. 70% of legacy 384px per user request
+// (2026-05-26). Drives both the static CSS size and the dynamic maxScale math.
+const MIC_BASE_PX = 269;
+// Total horizontal breathing room (half on each side) reserved between the
+// scaled mic and viewport edges. 24px each side feels balanced visually
+// without robbing aggressiveness from the RMS curve on wider phones.
+const SAFETY_MARGIN_PX = 24;
+// Hard upper ceiling regardless of viewport. Matches the 2026-05-17 softer-
+// punch design (max 1.4×); ResizeObserver only ever shrinks this further.
+const MIC_MAX_SCALE_CEILING = 1.4;
+
+// Voice screen primary affordance. 269px circular button (70% of legacy 384px,
+// shrunk 2026-05-26 to prevent viewport overflow on mid/narrow mobile screens)
+// with Framer Motion spring-driven scale. Industry-standard heartbeat pattern
+// (Discord voice indicator, Spotify now-playing pulse): RMS-driven scale +
+// intensifying shadow during speech, spring physics smooth out jitter.
 //
 // Spring config tuned for "softer punch" per user feedback 2026-05-17 —
 // stiffness 200 (was 360), damping 28 (was 22), mass 1.0 (was 0.8). Combined
-// with the formula `1 + min(0.4, rms/3500)` (max 1.4× scale; was 1.5×), the
-// button no longer "jumps" to peak on first voiced frame — it climbs.
+// with the formula `1 + min(maxScale-1, rms/3500)`, the button no longer
+// "jumps" to peak on first voiced frame — it climbs.
+//
+// `maxScale` is computed live via ResizeObserver against the available
+// container width: ceiling = min(1.4, (containerWidth − 48) / 269). On wide
+// phones (≥369px) the cap stays 1.4×; on narrow phones (iPhone SE 320px) the
+// cap shrinks so the scaled button never touches viewport edges. Aggressiveness
+// curve (slope) is unchanged — only the ceiling becomes viewport-aware.
 //
 // Mode-specific signatures:
 //   idle               — static; brand violet glow
@@ -66,6 +84,46 @@ export function MicButton({
     mass: 1.0,
   });
 
+  // Viewport-aware max-scale ceiling. ResizeObserver watches the mic's
+  // container; on every layout change we recompute the largest scale that
+  // keeps the button + SAFETY_MARGIN_PX inside the viewport. Used by the RMS
+  // math below in place of hardcoded 0.4 / 0.3 / 0.5 caps — the curve's
+  // slope is unchanged, only its ceiling shrinks on narrow phones.
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [maxScale, setMaxScale] = useState(MIC_MAX_SCALE_CEILING);
+  useEffect(() => {
+    const node = containerRef.current;
+    if (!node) return;
+    const compute = () => {
+      // Reference is the VIEWPORT width, not the mic container's clientWidth.
+      // The mic container is a `w-full` flex child but on this page it ends up
+      // sized to its only child (the 269px button) because the surrounding
+      // section uses `items-center`. Using clientWidth here would clamp
+      // maxScale to 1.0 (zero headroom) and flatline the RMS animation —
+      // verified by CDP probe 2026-05-26 on Pixel 7 (411px viewport but
+      // clientWidth=269 → ceiling=0.82 → clamp 1.0). The viewport bound is
+      // the real overflow constraint that we care about.
+      const w = window.innerWidth;
+      const ceiling = Math.max(
+        1.0,
+        (w - SAFETY_MARGIN_PX * 2) / MIC_BASE_PX,
+      );
+      setMaxScale(Math.min(MIC_MAX_SCALE_CEILING, ceiling));
+    };
+    compute();
+    // ResizeObserver still watches the container so orientation changes / split-
+    // screen resizes (which change viewport indirectly) trigger recompute.
+    const ro = new ResizeObserver(compute);
+    ro.observe(node);
+    window.addEventListener('resize', compute);
+    window.addEventListener('orientationchange', compute);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', compute);
+      window.removeEventListener('orientationchange', compute);
+    };
+  }, []);
+
   // Keep RMS in a ref so the pulsing RAF loop can read CURRENT rms without
   // re-creating the loop every 20ms when rms updates. Speaking + listening
   // useEffect still depends on rms because those are pure RMS-driven
@@ -89,28 +147,36 @@ export function MicButton({
     const tick = () => {
       const t = (Date.now() - start) / 1000;
       const sineBase = 0.10 * (1 + Math.sin(t * Math.PI * 2 * 0.8)) / 2; // 0..0.10, 0.8Hz
-      const rmsBoost = Math.min(0.5, rmsRef.current / 2500);
+      // RMS boost ceiling is `maxScale - 1 - sineBase` so the combined
+      // (1 + sineBase + rmsBoost) total can never exceed `maxScale`.
+      const rmsBoostCeiling = Math.max(0, maxScale - 1 - sineBase);
+      const rmsBoost = Math.min(rmsBoostCeiling, rmsRef.current / 2500);
       target.set(1 + sineBase + rmsBoost);
       raf = requestAnimationFrame(tick);
     };
     tick();
     return () => cancelAnimationFrame(raf);
-  }, [pulsing, target]);
+  }, [pulsing, target, maxScale]);
 
   // SPEAKING + LISTENING + IDLE etc. — pure RMS reactivity. Spring lag
   // absorbs jitter; the closure captures rms on every render.
   useEffect(() => {
     if (pulsing) return; // RAF effect above handles pulsing
+    // Both speaking and listening clamp against `maxScale - 1` instead of the
+    // legacy 0.4 / 0.3 caps. On wide phones the effective cap equals the
+    // legacy values (0.4 ≤ maxScale-1 when maxScale = 1.4); on narrow phones
+    // the cap shrinks so the scaled button stays inside the viewport.
+    const headroom = Math.max(0, maxScale - 1);
     if (speaking) {
-      target.set(1 + Math.min(0.4, rms / 3500));
+      target.set(1 + Math.min(headroom, rms / 3500));
       return;
     }
     if (listening) {
-      target.set(1 + Math.min(0.3, rms / 2500));
+      target.set(1 + Math.min(Math.min(headroom, 0.3), rms / 2500));
       return;
     }
     target.set(1);
-  }, [speaking, listening, pulsing, rms, target]);
+  }, [speaking, listening, pulsing, rms, target, maxScale]);
 
   // Mode-tinted glow. user-speaking AND assistant-speaking both intensify
   // blur+spread+opacity with RMS — pulsing's divisors are HALVED so cyan
@@ -132,7 +198,10 @@ export function MicButton({
               : '0 22px 68px 4px oklch(0.52 0.24 295 / 0.42)';
 
   return (
-    <div className="relative flex h-[560px] w-full items-center justify-center">
+    <div
+      ref={containerRef}
+      className="relative flex h-[400px] w-full touch-manipulation items-center justify-center"
+    >
       <div className={cn('relative', processing && 'animate-mic-spin')}>
         <motion.button
           type="button"
@@ -141,7 +210,7 @@ export function MicButton({
           aria-pressed={mode !== 'idle' && mode !== 'error'}
           aria-label={label}
           className={cn(
-            'relative grid size-[384px] place-items-center overflow-hidden rounded-full border-0 outline-none',
+            'relative grid size-[269px] place-items-center overflow-hidden rounded-full border-0 outline-none',
             'transition-[background] duration-300 ease-out',
             connecting ? 'cursor-wait' : 'cursor-pointer',
             errored && 'animate-mic-pulse-error',

@@ -54,7 +54,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       {/* Top-right icon cluster: bell, theme toggle, logout. Single flex
           row keeps positions consistent across breakpoints and removes
           the need for each button to own its own fixed-position state. */}
-      <div className="fixed right-4 top-3 z-40 flex items-center gap-2">
+      <div className="fixed right-[calc(env(safe-area-inset-right)+1rem)] top-[calc(env(safe-area-inset-top)+0.75rem)] z-40 flex items-center gap-2">
         <Link
           href="/notifications"
           aria-label={

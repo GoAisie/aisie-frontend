@@ -172,6 +172,10 @@ html, body {
   height: 100%;
   margin: 0;
   padding: 0;
+  /* Kill Android Chrome pull-to-refresh + bounce. Safari PWA standalone
+     already does not pull-to-refresh, so this is a no-op there. No page in
+     the PWA wants pull-to-refresh — all data is SWR-driven. */
+  overscroll-behavior: none;
 }
 
 /* Lock horizontal overflow so the mic button can scale beyond viewport edges
