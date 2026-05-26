@@ -1,12 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useMutation } from '@tanstack/react-query';
 import { loginRequestSchema, loginResponseSchema, type LoginResponse } from '@aisie/shared';
 import { apiFetch, ApiError } from '@/lib/api-client';
-import { useSessionStore } from '@/lib/auth/session-store';
+import { readAndClearLogoutReason, useSessionStore } from '@/lib/auth/session-store';
 import { PasswordInput } from '@/components/PasswordInput';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,6 +20,17 @@ export default function AdminLoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [roleError, setRoleError] = useState<string | null>(null);
+  // Reason banner — when the auth guard redirected the user here because
+  // their refresh token was rejected, surface a clear "Oturum süreniz doldu"
+  // explanation. `if (v) setLogoutReason(v)` keeps the banner sticky across
+  // React 19 StrictMode's double-effect-fire in dev: readAndClearLogoutReason
+  // is destructive (removes marker after read), so the second fire reads
+  // null. Unconditional setState would clobber the first run's value.
+  const [logoutReason, setLogoutReason] = useState<'session_expired' | null>(null);
+  useEffect(() => {
+    const v = readAndClearLogoutReason();
+    if (v) setLogoutReason(v);
+  }, []);
 
   const login = useMutation({
     mutationFn: async (): Promise<LoginResponse> => {
@@ -67,6 +78,17 @@ export default function AdminLoginPage() {
         <h1 className="m-0 text-[26px] font-bold text-brand-600">aisie admin</h1>
         <h2 className="m-0 text-[15px] font-medium text-foreground">Yönetim Paneli Girişi</h2>
       </div>
+
+      {logoutReason === 'session_expired' && (
+        <Alert
+          role="status"
+          className="border-amber-300 bg-amber-50 text-amber-900 [&>svg]:text-amber-700"
+        >
+          <AlertDescription>
+            Oturumunuzun süresi doldu. Lütfen tekrar giriş yapın.
+          </AlertDescription>
+        </Alert>
+      )}
 
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="email" className="text-[13px] text-muted-foreground">E-posta</Label>

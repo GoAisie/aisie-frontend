@@ -9,6 +9,34 @@ import { useActingCompanyStore } from './acting-company-store';
 
 const STORAGE_KEY_REFRESH = 'aisie_admin_refresh_token';
 const STORAGE_KEY_USER = 'aisie_admin_user';
+// Per-tab marker for logout cause. When the refresh token is rejected
+// (rotation reuse-detect, 7-day expiry, multi-device race, etc.), the user
+// is silently kicked back to /login by the auth guard — without this marker
+// they cannot tell *why*. The login page reads it on mount and surfaces an
+// "Oturumunuzun süresi doldu" banner, then clears the marker. sessionStorage
+// (not localStorage) so a tab close is a natural reset and concurrent tabs
+// do not stomp each other's banners. Mirrors apps/pwa/lib/auth/session-store.ts.
+const STORAGE_KEY_LOGOUT_REASON = 'aisie_admin_logout_reason';
+
+export type LogoutReason = 'session_expired';
+
+export function markLogoutReason(reason: LogoutReason): void {
+  try {
+    sessionStorage.setItem(STORAGE_KEY_LOGOUT_REASON, reason);
+  } catch {
+    // Private browsing / quota — banner will simply not show, login still works.
+  }
+}
+
+export function readAndClearLogoutReason(): LogoutReason | null {
+  try {
+    const v = sessionStorage.getItem(STORAGE_KEY_LOGOUT_REASON);
+    if (v) sessionStorage.removeItem(STORAGE_KEY_LOGOUT_REASON);
+    return (v === 'session_expired' ? 'session_expired' : null);
+  } catch {
+    return null;
+  }
+}
 
 // Access token stays in memory only. Refresh token persisted in localStorage
 // so page reloads don't force the admin back to /login.
@@ -130,6 +158,13 @@ export const useSessionStore = create<SessionState>((set) => ({
         body: JSON.stringify({ refresh_token: storedRefresh }),
       });
       if (!res.ok) {
+        // 401/403 → rotated/revoked refresh token (single-use rotation + reuse
+        // detection per OAuth 2.1 best practice). Mark so the login page can
+        // surface a friendly "Oturum süreniz doldu" banner instead of leaving
+        // the user wondering why they landed back on the form.
+        if (res.status === 401 || res.status === 403) {
+          markLogoutReason('session_expired');
+        }
         useSessionStore.getState().clearSession();
         set({ initialized: true });
         return;

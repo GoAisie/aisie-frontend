@@ -1,5 +1,5 @@
 import { env } from './env';
-import { getAccessToken, getRole, useSessionStore } from './auth/session-store';
+import { getAccessToken, getRole, markLogoutReason, useSessionStore } from './auth/session-store';
 import { getActingCompanyId } from './auth/acting-company-store';
 import { loginResponseSchema } from '@aisie/shared';
 
@@ -54,7 +54,15 @@ async function tryRefreshAccessToken(): Promise<boolean> {
         throw new TransientRefreshError(0);
       }
       if (res.status === 401 || res.status === 403) {
-        // Server-confirmed refresh failure — caller will clearSession.
+        // Refresh token rejected by server (expired, revoked, reuse detected
+        // per OAuth 2.1 single-use rotation). Clear the session AND mark a
+        // reason so the login page can surface "Oturum süreniz doldu" —
+        // without the marker the user silently lands on the login form with
+        // no explanation. Centralising the clear+mark here means every caller
+        // (apiFetch 401-retry, future paths) gets consistent UX without
+        // duplicated logic. Mirrors apps/pwa/lib/api-client.ts.
+        markLogoutReason('session_expired');
+        useSessionStore.getState().clearSession();
         return false;
       }
       if (!res.ok) {
