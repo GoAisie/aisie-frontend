@@ -1,4 +1,26 @@
-// Aisie PWA service worker.
+import { NextResponse } from 'next/server';
+
+// Service worker served via a route handler (not a static file in /public)
+// so the body bytes can carry the build SHA. Why: a static sw.js never
+// changes its byte content between deploys, and the browser only treats a
+// service worker as "new" when its bytes differ — so a stable sw.js means
+// the install/activate cycle never re-runs and old StaleWhileRevalidate
+// caches (e.g. /_next/static chunks from the previous deploy) keep being
+// served forever. Inlining BUILD_SHA into both the file header and the
+// VERSION constant guarantees a byte-level diff on every deploy, which
+// triggers self.skipWaiting() + clients.claim() + the activate handler's
+// purge of stale caches.
+//
+// force-static lets Vercel bake the response at build time, so each prod
+// build produces a different /sw.js byte stream pinned to that build's SHA.
+// Cache-Control: max-age=0, must-revalidate is the canonical SW header pair
+// (per Chrome/Workbox guidance) — browsers will revalidate the SW file on
+// every page load instead of caching it for hours.
+export const dynamic = 'force-static';
+
+const BUILD_SHA = (process.env.VERCEL_GIT_COMMIT_SHA ?? 'local').slice(0, 7);
+
+const SW_SOURCE = `// Aisie PWA service worker — built ${BUILD_SHA}
 //
 // Strategy per URL class:
 //   • /api/* and /auth/*       → NetworkOnly (never cache; always hit gateway)
@@ -6,10 +28,10 @@
 //   • Navigation HTML          → NetworkFirst with cached fallback (offline shell)
 //   • /_next/static/*, /icons, /worklets, /manifest → StaleWhileRevalidate
 //
-// The cache name is versioned; changing VERSION on deploy causes the activate
-// handler to purge the old cache so clients aren't stuck on stale bundles.
+// The cache name is pinned to BUILD_SHA so every deploy is a fresh cache
+// and the activate handler purges every prior cache automatically.
 
-const VERSION = 'aisie-v1';
+const VERSION = 'aisie-${BUILD_SHA}';
 const APP_SHELL = [
   '/',
   '/login',
@@ -110,3 +132,14 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   event.waitUntil(clients.openWindow(event.notification.data.url));
 });
+`;
+
+export function GET() {
+  return new NextResponse(SW_SOURCE, {
+    headers: {
+      'Content-Type': 'application/javascript; charset=utf-8',
+      'Service-Worker-Allowed': '/',
+      'Cache-Control': 'public, max-age=0, must-revalidate',
+    },
+  });
+}

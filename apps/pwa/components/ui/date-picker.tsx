@@ -121,6 +121,13 @@ export function DatePicker({
             }
           }}
           defaultMonth={selected}
+          // captionLayout=dropdown swaps the month label for two <select>
+          // dropdowns (month + year). Bounding with startMonth/endMonth keeps
+          // the year list focused on pilot-relevant range — without bounds
+          // react-day-picker emits 100 years, painful to scroll on mobile.
+          captionLayout="dropdown"
+          startMonth={new Date(2024, 0)}
+          endMonth={new Date(2030, 11)}
         />
       </PopoverContent>
     </Popover>
