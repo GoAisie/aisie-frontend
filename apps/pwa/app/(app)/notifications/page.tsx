@@ -65,7 +65,7 @@ export default function NotificationsPage() {
   const unreadCount = notifications.filter((n) => !n.read_at).length;
 
   return (
-    <section className="px-4 pt-15 pb-20">
+    <section className="px-4 pb-20">
       <PageHeader
         title="Bildirimler"
         rightSlot={

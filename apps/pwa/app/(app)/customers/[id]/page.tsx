@@ -97,7 +97,7 @@ export default function CustomerDetailPage() {
 
   if (isLoading) {
     return (
-      <section className="px-4 pt-15 pb-2">
+      <section className="px-4 pt-page pb-2">
         <BackLink />
         <p className="m-0 mt-3 text-[14px] text-muted-foreground">
           Yükleniyor…
@@ -108,7 +108,7 @@ export default function CustomerDetailPage() {
 
   if (isError) {
     return (
-      <section className="px-4 pt-15 pb-2">
+      <section className="px-4 pt-page pb-2">
         <BackLink />
         <p className="m-0 mt-3 text-[14px] text-destructive">
           Müşteri bilgisi yüklenemedi.
@@ -119,7 +119,7 @@ export default function CustomerDetailPage() {
 
   if (!customer) {
     return (
-      <section className="px-4 pt-15 pb-2">
+      <section className="px-4 pt-page pb-2">
         <BackLink />
         <p className="m-0 mt-3 text-[14px] text-destructive">
           Müşteri bulunamadı.
@@ -143,7 +143,7 @@ export default function CustomerDetailPage() {
     editCustomer.isPending || form.name.trim().length === 0;
 
   return (
-    <section className="px-4 pt-15 pb-2">
+    <section className="px-4 pt-page pb-2">
       <BackLink />
 
       <header className="mt-3 flex flex-wrap items-start justify-between gap-3">

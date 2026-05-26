@@ -16,7 +16,10 @@ export function PageHeader({ title, subtitle, rightSlot, className }: Props) {
         // items-center vertically aligns the right-slot button with the
         // title block centerline (rather than topline) — visually balanced
         // when subtitle is present. User-requested 2026-05-17.
-        'mb-4 flex items-center justify-between gap-4',
+        // pt-page composes env(safe-area-inset-top) with breathing room so
+        // the title clears the layout-fixed icon cluster on notched devices
+        // (iPhone 12+, Dynamic Island). Defined in globals.css.
+        'mb-4 flex items-center justify-between gap-4 pt-page',
         className,
       )}
     >

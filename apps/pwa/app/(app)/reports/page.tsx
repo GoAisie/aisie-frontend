@@ -106,7 +106,7 @@ export default function ReportsPage() {
   });
 
   return (
-    <section className="px-4 pt-15 pb-2">
+    <section className="px-4 pb-2">
       <PageHeader
         title="Raporlar"
         subtitle={

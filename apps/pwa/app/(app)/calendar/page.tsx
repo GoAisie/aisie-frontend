@@ -111,7 +111,7 @@ export default function CalendarPage() {
   const selectedEvents = eventsByDate[selectedDate] ?? [];
 
   return (
-    <section className="px-4 pt-15 pb-2">
+    <section className="px-4 pb-2">
       <PageHeader title="Ajanda" />
 
       {/* Month navigation — click title to open year/month picker */}

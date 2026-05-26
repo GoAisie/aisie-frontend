@@ -184,6 +184,19 @@ body {
   overflow-x: hidden;
 }
 
+/* Single source of truth for content-page top padding. Composes the device's
+   safe-area inset with a 3rem (~48px) breathing constant so the page title
+   always clears the fixed top-right icon cluster (which itself sits at
+   env(safe-area-inset-top) + 0.75rem and is 36px tall).
+   - notch-less devices (env=0)   → 3rem (~48px), same band as the old pt-15
+   - iPhone 12 notch (env=~47)    → ~107px → ~12px buffer below icon cluster
+   - iPhone 15 Dynamic Island     → ~107-120px depending on inset
+   PageHeader applies this internally; non-PageHeader sections (loading/error
+   states, manual headers like reports/[id] editor) opt in via class pt-page. */
+@utility pt-page {
+  padding-top: calc(env(safe-area-inset-top) + 3rem);
+}
+
 body {
   color: var(--color-foreground);
   background: var(--color-background);

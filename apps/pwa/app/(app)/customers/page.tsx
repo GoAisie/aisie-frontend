@@ -120,7 +120,7 @@ export default function CustomersPage() {
   const addDisabled = addCustomer.isPending || trimmedName.length === 0;
 
   return (
-    <section className="px-4 pt-15 pb-2">
+    <section className="px-4 pb-2">
       <PageHeader
         title="Müşteriler"
         subtitle={

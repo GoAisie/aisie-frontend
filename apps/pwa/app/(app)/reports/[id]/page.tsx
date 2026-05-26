@@ -42,7 +42,7 @@ export default function ReportDetailPage() {
 
   if (loadingReport || loadingTemplate) {
     return (
-      <section className="px-4 pt-15 pb-2">
+      <section className="px-4 pt-page pb-2">
         <BackLink />
         <p className="m-0 mt-3 text-[14px] text-muted-foreground">
           Yükleniyor…
@@ -53,7 +53,7 @@ export default function ReportDetailPage() {
 
   if (errorReport || !report) {
     return (
-      <section className="px-4 pt-15 pb-2">
+      <section className="px-4 pt-page pb-2">
         <BackLink />
         <p className="m-0 mt-3 text-[14px] text-destructive">
           Rapor yüklenemedi.
@@ -138,7 +138,7 @@ function ReportEditor({
     report.status === 'completed' ? 'completed' : 'in-progress';
 
   return (
-    <section className="px-4 pt-15 pb-20">
+    <section className="px-4 pt-page pb-20">
       <BackLink />
 
       <header className="mb-5 mt-2">

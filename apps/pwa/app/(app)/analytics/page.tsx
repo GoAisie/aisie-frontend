@@ -39,7 +39,7 @@ export default function AnalyticsPage() {
 
   if (summary.isLoading) {
     return (
-      <section className="px-4 pt-15 pb-2">
+      <section className="px-4 pb-2">
         <PageHeader title="Analiz" subtitle="Yükleniyor…" />
       </section>
     );
@@ -47,7 +47,7 @@ export default function AnalyticsPage() {
 
   if (summary.isError || !summary.data) {
     return (
-      <section className="px-4 pt-15 pb-2">
+      <section className="px-4 pb-2">
         <PageHeader title="Analiz" />
         <p className="m-0 mt-3 text-[14px] text-destructive">
           Veriler yüklenemedi.
@@ -60,7 +60,7 @@ export default function AnalyticsPage() {
   const weeklyDelta = data.reports_this_week - data.reports_last_week;
 
   return (
-    <section className="px-4 pt-15 pb-2">
+    <section className="px-4 pb-2">
       <PageHeader title="Analiz" />
 
       {/* KPI cards — 2x2 grid */}
