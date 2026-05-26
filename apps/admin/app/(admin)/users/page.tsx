@@ -77,6 +77,17 @@ export default function AdminUsersPage() {
 
   const isSuperAdmin = role === 'SUPER_ADMIN';
 
+  // Defensive frontend guard against the "default invite targets Aisie Platform"
+  // misroute. When a SUPER_ADMIN pinned to the platform tenant opens the invite
+  // dialog without first selecting an acting company, effectiveCompanyId falls
+  // back to their own (Aisie Platform). Submitting the form here would land
+  // the invitee in a tenant that the org-picker filters out, leaving the user
+  // invisible to admin views. Backend rejects this with HTTP 400 since the
+  // 260526 invite guard, but disabling the submit here gives an explanation
+  // *before* the round trip and points the operator at the picker.
+  const isPlatformOwnTenant = sessionUser?.companyName === 'Aisie Platform';
+  const inviteWouldTargetPlatform = !actingCompanyId && isPlatformOwnTenant;
+
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteForm, setInviteForm] = useState<InviteFormState>(INITIAL_INVITE);
   const [inviteSuccess, setInviteSuccess] = useState<string | null>(null);
@@ -245,6 +256,7 @@ export default function AdminUsersPage() {
                       <TableCell className="text-right">
                         <RowActions
                           user={u}
+                          currentUserPublicId={sessionUser?.publicId ?? null}
                           onAction={(type) => {
                             setPendingAction({ type, user: u });
                             setActionError(null);
@@ -329,6 +341,15 @@ export default function AdminUsersPage() {
               </div>
             </div>
 
+            {inviteWouldTargetPlatform && (
+              <Alert variant="destructive">
+                <AlertDescription>
+                  Davet şu an Aisie Platform tenant&apos;ına yönelmiş durumda. Bu tenant
+                  yalnızca platform yöneticileri içindir. Önce sol panelden hedef
+                  şirketi seçin, sonra davet gönderin.
+                </AlertDescription>
+              </Alert>
+            )}
             {inviteError && (
               <Alert variant="destructive">
                 <AlertDescription>{inviteError}</AlertDescription>
@@ -347,6 +368,7 @@ export default function AdminUsersPage() {
                 type="submit"
                 disabled={
                   invite.isPending ||
+                  inviteWouldTargetPlatform ||
                   !inviteForm.email.trim() ||
                   !inviteForm.firstName.trim() ||
                   !inviteForm.lastName.trim()
@@ -426,11 +448,22 @@ export default function AdminUsersPage() {
 
 function RowActions({
   user,
+  currentUserPublicId,
   onAction,
 }: {
   user: UserRow;
+  // The logged-in operator's publicId. When the row IS the operator, all
+  // action buttons are suppressed: backend service-layer guards already 403
+  // self-deactivate / self-delete (UserManagementService:269,300), but
+  // surfacing the buttons led to confusing "İşlem başarısız" error dialogs
+  // on a confirmation step that should never have been offered. Suppressing
+  // here keeps the destructive confirm prompt out of the path entirely.
+  currentUserPublicId: string | null;
   onAction: (type: 'deactivate' | 'reactivate' | 'delete') => void;
 }) {
+  if (currentUserPublicId && user.publicId === currentUserPublicId) {
+    return <span className="text-[11px] text-muted-foreground">—</span>;
+  }
   return (
     <div className="inline-flex gap-2">
       {user.status === 'ACTIVE' && (

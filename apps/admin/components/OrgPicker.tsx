@@ -22,7 +22,12 @@ import { cn } from '@/lib/utils';
 // picked. Backend omits the platform row from /companies so the user never
 // accidentally selects their auth host.
 
-const PLATFORM_COMPANY_NAME = 'AISIE Platform';
+// Must match the row name set by Liquibase 260522-0001-prod-superadmin-bootstrap.
+// Earlier value 'AISIE Platform' mismatched the DB ('Aisie Platform') so the
+// isPlatformUser branch never fired — picker labelled the platform tenant as
+// "Kendi şirketin" instead of "Şirket seçilmedi", and admin pages defaulted
+// invites at the platform tenant (root cause of the 2026-05-25 misroute).
+const PLATFORM_COMPANY_NAME = 'Aisie Platform';
 
 type CompanyRow = {
   public_id: string;
