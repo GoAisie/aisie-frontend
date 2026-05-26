@@ -7,6 +7,7 @@ import { Trash2 } from 'lucide-react';
 import { apiFetch } from '@/lib/api-client';
 import { formatDateTime } from '@/lib/format';
 import { Button } from '@/components/ui/button';
+import { DatePicker } from '@/components/ui/date-picker';
 import {
   Dialog,
   DialogContent,
@@ -135,12 +136,11 @@ export default function ReportsPage() {
           active={statusFilter === 'in-progress'}
           onClick={() => setStatusFilter('in-progress')}
         />
-        <input
-          type="date"
+        <DatePicker
           value={dateFilter}
-          onChange={(e) => setDateFilter(e.target.value)}
-          aria-label="Tarih filtresi"
-          className="rounded-xl border border-border bg-card px-3 py-1.5 text-[13px] text-foreground transition-colors hover:bg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onChange={setDateFilter}
+          ariaLabel="Tarih filtresi"
+          placeholder="Tarih seç"
         />
         {isFiltered && (
           <Button

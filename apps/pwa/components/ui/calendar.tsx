@@ -8,12 +8,10 @@ import { tr } from "date-fns/locale"
 import { cn } from "@/lib/utils"
 import { buttonVariants } from "@/components/ui/button"
 
-// Tailwind-driven Calendar built on react-day-picker v9. Theming is fully
-// token-based (brand-600 selection, muted ranges, ring on today) so dark mode
-// inherits via `.dark` overrides — no separate styles needed.
-// `locale={tr}` forces Turkish weekday/month names regardless of the
-// browser's system locale — pilot UX consistency.
-export type CalendarProps = React.ComponentProps<typeof DayPicker>;
+// Tailwind-driven Calendar built on react-day-picker v9. Token-based theming
+// (brand-600 selection, ring on today) inherits dark mode automatically.
+// `locale={tr}` forces Turkish weekday/month names regardless of browser locale.
+export type CalendarProps = React.ComponentProps<typeof DayPicker>
 
 function Calendar({
   className,
@@ -46,24 +44,18 @@ function Calendar({
         cell: cn(
           "relative p-0 text-center text-sm focus-within:relative focus-within:z-20",
           "[&:has([aria-selected])]:bg-brand-50 dark:[&:has([aria-selected])]:bg-brand-900/40",
-          "[&:has([aria-selected].day-range-end)]:rounded-r-md",
           "first:[&:has([aria-selected])]:rounded-l-md last:[&:has([aria-selected])]:rounded-r-md"
         ),
         day: cn(
           "size-9 p-0 font-normal text-foreground hover:bg-muted rounded-md transition-colors aria-selected:opacity-100"
         ),
-        day_range_start:
-          "day-range-start rounded-l-md bg-brand-600 text-white hover:bg-brand-700 hover:text-white focus:bg-brand-700 focus:text-white",
-        day_range_end:
-          "day-range-end rounded-r-md bg-brand-600 text-white hover:bg-brand-700 hover:text-white focus:bg-brand-700 focus:text-white",
         day_selected:
           "bg-brand-600 text-white hover:bg-brand-700 hover:text-white focus:bg-brand-700 focus:text-white",
         day_today:
           "ring-1 ring-inset ring-brand-600 text-brand-700 dark:text-brand-300",
-        day_outside: "text-muted-foreground/50 aria-selected:text-muted-foreground",
+        day_outside:
+          "text-muted-foreground/50 aria-selected:text-muted-foreground",
         day_disabled: "text-muted-foreground/30 cursor-not-allowed",
-        day_range_middle:
-          "aria-selected:bg-brand-50 aria-selected:text-foreground dark:aria-selected:bg-brand-900/40",
         day_hidden: "invisible",
         ...classNames,
       }}

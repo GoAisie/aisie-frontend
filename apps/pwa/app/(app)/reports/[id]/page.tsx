@@ -8,6 +8,7 @@ import { ArrowLeft, Check } from 'lucide-react';
 import { apiFetch } from '@/lib/api-client';
 import { formatDateTime } from '@/lib/format';
 import { Button } from '@/components/ui/button';
+import { DatePicker } from '@/components/ui/date-picker';
 import { Input } from '@/components/ui/input';
 import {
   StatusBadge,
@@ -259,24 +260,38 @@ function FieldInput({
     );
   }
 
+  // Date fields use a custom Turkish picker (dd.MM.yyyy label, YYYY-MM-DD
+  // wire value) — native <input type="date"> respects browser locale, which
+  // on iPhone Safari + Android Chrome means mm-dd-yyyy when system is set to
+  // en-US. The picker normalises display across devices without changing the
+  // backend contract.
+  if (field.type === 'date') {
+    // Legacy MongoDB rows may have stored datetime strings ("2026-04-20T...");
+    // slice to the date portion so the picker sees a clean YYYY-MM-DD.
+    const dateValue =
+      value === null || value === undefined ? '' : String(value).slice(0, 10);
+    return (
+      <label className="flex flex-col gap-1.5">
+        {label}
+        <DatePicker
+          value={dateValue}
+          onChange={(next) => onChange(next === '' ? null : next)}
+          required={field.required}
+          clearable={!field.required}
+        />
+      </label>
+    );
+  }
+
   const inputType =
     field.type === 'number'
       ? 'number'
-      : field.type === 'date'
-        ? 'date'
-        : field.type === 'time'
-          ? 'time'
-          : 'text';
+      : field.type === 'time'
+        ? 'time'
+        : 'text';
 
-  // date inputs require exactly "YYYY-MM-DD"; datetime strings
-  // ("2026-04-20T00:00:00") returned by older MongoDB records would show
-  // empty — strip the time portion.
   const displayValue =
-    value === null || value === undefined
-      ? ''
-      : field.type === 'date'
-        ? String(value).slice(0, 10)
-        : String(value);
+    value === null || value === undefined ? '' : String(value);
 
   return (
     <label className="flex flex-col gap-1.5">
