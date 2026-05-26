@@ -19,7 +19,7 @@ export function PageHeader({ title, subtitle, rightSlot, className }: Props) {
         // pt-page composes env(safe-area-inset-top) with breathing room so
         // the title clears the layout-fixed icon cluster on notched devices
         // (iPhone 12+, Dynamic Island). Defined in globals.css.
-        'mb-4 flex items-center justify-between gap-4 pt-page',
+        'mb-4 flex items-center justify-between gap-4 pt-[var(--pt-page)]',
         className,
       )}
     >
